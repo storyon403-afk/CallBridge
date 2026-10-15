@@ -1,0 +1,19 @@
+# 本文件的目的：配置 Rust 核心的构建方式、最低语法版本与 FFI 错误边界。
+# 同时生成 rlib 和 staticlib：前者供 Rust 构建使用，后者让原生 Clang 链接。
+[package]
+name = "callbridge-abi-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[profile.release]
+# 不让 Rust panic 沿调用栈跨越 C 边界；abort 会终止进程，不是安全静音恢复机制。
+panic = "abort"
+
+[lints.rust]
+# 即使函数声明为 unsafe，内部危险操作也必须放进明确的 unsafe 块，便于逐处审查。
+unsafe_op_in_unsafe_fn = "deny"

@@ -1,0 +1,22 @@
+.DS_Store
+.build/
+build/
+target/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.dSYM/
+*.pkg
+*.dmg
+
+#环境变量配置
+.env
+.env.*s
+!.env.example
+*.p12
+*.mobileprovision
+
+# 文档
+**/docs/
+r1.md
+R2.md

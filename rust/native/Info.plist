@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+本文件的目的：告诉 macOS 这个 App 的身份、启动文件和系统版本要求。
+为什么独立于代码？Finder、应用启动和签名工具读取的是 bundle 元数据，不会扫描 main 函数。
+这里不声明物理麦克风/摄像头用途，因为当前演示发送器不采集这些设备。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- 可执行文件名要与 Contents/MacOS/ 下的构建产物一致。 -->
+    <key>CFBundleExecutable</key><string>CallBridge</string>
+    <key>CFBundleIdentifier</key><string>dev.callbridge.demo</string>
+    <key>CFBundleName</key><string>CallBridge</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <!-- 对外版本号与内部构建号分开；不能把构建号理解成系统版本。 -->
+    <key>CFBundleShortVersionString</key><string>0.2.0</string>
+    <key>CFBundleVersion</key><string>2</string>
+    <!-- 与 build-app.sh 的部署目标一致，不靠修改这个字符串就获得旧系统兼容性。 -->
+    <key>LSMinimumSystemVersion</key><string>26.0</string>
+    <key>NSHighResolutionCapable</key><true/>
+    <key>NSPrincipalClass</key><string>NSApplication</string>
+</dict>
+</plist>
