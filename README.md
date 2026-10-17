@@ -27,7 +27,7 @@
 
 ## 构建
 
-本机音频演示 App 的构建要求：Apple Silicon、macOS 26+、Apple Command Line Tools、Rust，以及已安装的 [BlackHole 16ch](https://github.com/ExistentialAudio/BlackHole)。设备设为 48 kHz，系统安装 Tingting 或 Samantha 语音。
+本机音频演示 App 的构建要求：Apple Silicon、macOS 26+、Apple Command Line Tools、Rust，以及callbridge 虚拟音频引擎 （先前计划的[BlackHole 16ch/2ch](https://github.com/ExistentialAudio/BlackHole)经实测未知bug不可行,待以后详细探索）。设备设为 48 kHz，系统安装 Tingting 或 Samantha 语音。
 
 在项目根目录运行：
 
