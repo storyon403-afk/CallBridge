@@ -9,14 +9,20 @@ xcuserdata/
 *.pkg
 *.dmg
 
-#环境变量配置
+# configuration of env
 .env
 .env.*s
 !.env.example
 *.p12
 *.mobileprovision
 
-# 文档
+# documentations
 **/docs/
 r1.md
 R2.md
+
+# reference
+reference
+
+# agent read
+AGENTS.md

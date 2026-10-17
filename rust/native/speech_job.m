@@ -3,11 +3,12 @@
 
 为什么使用 writeUtterance 而不是直接朗读？
 我们需要拿到音频样本再交给 BlackHole，不能让系统把语音直接播到默认扬声器。
-为什么先收完整句？这版采用有界批量合成，简化尾部转换、取消和所有权管理；不是流式 TTS。
+默认产品使用逐块合成/转换/交付；旧整句接口仅保留为可比较的诊断基线。
 为什么能使用 NSLock？这里是合成/转换任务，不是 AUHAL 实时回调；锁只保护任务的共享状态。
-UI 线程负责启动/取消，系统回调收样本，后台队列转换，最终结果回主线程。
+UI 线程负责启动/取消，系统回调复制样本，串行后台队列持续重采样，块和结束通知回主线程。
 */
 #import "speech_job.h"
+#import "stream_converter.h"
 #import <AVFAudio/AVFAudio.h>
 #include "preflight.h"
 #include <math.h>
@@ -68,18 +69,38 @@ static NSData *convert_audio(NSData *mono, double rate) {
 @property(nonatomic, strong) NSLock *lock;
 @property(nonatomic, strong) NSMutableData *mono;
 @property(nonatomic) double rate;
+// rate 是输入 PCM 采样率；speechRate 是朗读语速，两者不能混淆。
+@property(nonatomic) float speechRate;
+@property(nonatomic) float pitch;
 @property(nonatomic) uint32_t channels;
 @property(nonatomic) BOOL ended;
 @property(nonatomic) BOOL cancelled;
 @property(nonatomic, copy) void (^completion)(NSData *, NSString *);
+@property(nonatomic, copy) void (^chunkHandler)(NSData *);
+@property(nonatomic) BOOL streaming;
+@property(nonatomic) uint64_t inputFrames;
+@property(nonatomic, strong) dispatch_queue_t conversionQueue;
+@property(nonatomic, strong) CallBridgeStreamConverter *streamConverter;
+@property(nonatomic) double streamPeak;
+// 限制未执行的工作与交付任务，避免主线程繁忙时堆积无界 dispatch block。
+@property(nonatomic) NSUInteger pendingBlocks;
+@property(nonatomic) NSUInteger pendingBytes;
 @end
 
 @implementation CallBridgeSpeechJob
 - (instancetype)init {
+    return [self initWithSpeechRate:AVSpeechUtteranceDefaultSpeechRate pitch:1];
+}
+- (instancetype)initWithSpeechRate:(float)speechRate pitch:(float)pitch {
+    if (!isfinite(speechRate) || speechRate < 0.35f || speechRate > 0.6f
+        || !isfinite(pitch) || pitch < 0.8f || pitch > 1.2f) return nil;
     self = [super init];
     if (self) {
+        _speechRate = speechRate;
+        _pitch = pitch;
         _lock = [[NSLock alloc] init];
         _mono = [NSMutableData data];
+        _conversionQueue = dispatch_queue_create("org.callbridge.speech.convert", DISPATCH_QUEUE_SERIAL);
     }
     return self;
 }
@@ -89,10 +110,63 @@ static NSData *convert_audio(NSData *mono, double rate) {
         [self.lock lock];
         void (^completion)(NSData *, NSString *) = self.cancelled ? nil : self.completion;
         self.completion = nil;
+        self.chunkHandler = nil;
         [self.lock unlock];
         // 不持锁调用外部代码，避免回调里再取消任务导致自己等待自己的锁。
         if (completion != nil) completion(pcm, error);
     });
+}
+// 串行队列保证转换器历史与 EOS 顺序一致；主线程队列保证块在 completion 之前交付。
+- (void)enqueueMono:(NSData *)mono rate:(double)rate end:(BOOL)end {
+    // 调用者持锁；预算覆盖排队输入和排队输出，不包括当前最多 32768 帧的输入工作块。
+    self.pendingBlocks++;
+    self.pendingBytes += mono.length;
+    dispatch_async(self.conversionQueue, ^{
+        @autoreleasepool {
+            [self.lock lock];
+            self.pendingBlocks--;
+            self.pendingBytes -= mono.length;
+            BOOL cancelled = self.cancelled;
+            [self.lock unlock];
+            if (cancelled) return;
+            if (self.streamConverter == nil) self.streamConverter = [[CallBridgeStreamConverter alloc] init];
+            NSString *error = nil;
+            NSArray<NSData *> *chunks = [self.streamConverter convertMono:mono rate:rate end:end error:&error];
+            if (chunks == nil) { [self complete:nil error:error]; return; }
+            for (NSData *chunk in chunks) {
+                CallBridgePcmStats stats = {0};
+                cb_pcm_measure(chunk.bytes, (uint32_t)(chunk.length / sizeof(float)), &stats);
+                self.streamPeak = fmax(self.streamPeak, stats.peak);
+                [self.lock lock];
+                BOOL overBudget = self.pendingBlocks >= 2048 || self.pendingBytes + chunk.length > 8 * 1024 * 1024;
+                BOOL cancelled = self.cancelled;
+                if (!overBudget && !cancelled) { self.pendingBlocks++; self.pendingBytes += chunk.length; }
+                [self.lock unlock];
+                if (cancelled) return;
+                // 不阻塞生产者等 UI；超预算明确终止该句，不丢弃中间音频后继续冒充完整发送。
+                if (overBudget) { [self complete:nil error:@"语音处理队列已满，请缩短文字后重试。"]; return; }
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self.lock lock];
+                    self.pendingBlocks--;
+                    self.pendingBytes -= chunk.length;
+                    void (^handler)(NSData *) = self.cancelled ? nil : self.chunkHandler;
+                    [self.lock unlock];
+                    if (handler != nil) handler(chunk);
+                });
+            }
+            if (end) [self complete:nil error:self.streamPeak > 1e-5 ? nil : @"合成结果只有静音。"];
+        }
+    });
+}
+
+- (void)startStreamingText:(NSString *)text voice:(NSString *)voiceID
+    chunk:(void (^)(NSData *))chunk completion:(void (^)(NSString *))completion {
+    self.streaming = YES;
+    self.chunkHandler = chunk;
+    [self startText:text voice:voiceID completion:^(NSData *pcm, NSString *error) {
+        (void)pcm;
+        completion(error);
+    }];
 }
 // 3. 系统每次返回一块缓冲；先确认当前任务仍有效，再追加到自己的内存。
 - (void)acceptBuffer:(AVAudioBuffer *)buffer {
@@ -107,17 +181,20 @@ static NSData *convert_audio(NSData *mono, double rate) {
         if (pcm.frameLength == 0) {
             // 零长度回调作为合成结束信号；复制快照，让后台转换不依赖可变收集容器。
             self.ended = YES;
-            source = [self.mono copy];
+            source = self.streaming ? [NSData data] : [self.mono copy];
         } else {
             double rate = pcm.format.sampleRate;
             uint32_t channels = pcm.format.channelCount;
             if (pcm.format.commonFormat != AVAudioPCMFormatFloat32 || pcm.floatChannelData == NULL
                 || !isfinite(rate) || rate < 8000 || rate > 192000 || channels < 1 || channels > 2) {
                 failure = @"系统语音格式暂不支持。";
+            } else if (self.streaming && (pcm.frameLength > 32768 || self.pendingBlocks >= 2048
+                || self.pendingBytes + (NSUInteger)pcm.frameLength * sizeof(float) > 8 * 1024 * 1024)) {
+                failure = @"语音处理队列已满或单块超限，请缩短文字后重试。";
             // 不把不同采样率/声道的数据直接拼接，否则长度相同也不代表格式相同。
-            } else if (self.mono.length > 0 && (self.rate != rate || self.channels != channels)) {
+            } else if (self.inputFrames > 0 && (self.rate != rate || self.channels != channels)) {
                 failure = @"合成过程中音频格式发生变化，已取消。";
-            } else if ((double)(self.mono.length / sizeof(float) + pcm.frameLength) > rate * 30) {
+            } else if ((double)(self.inputFrames + pcm.frameLength) > rate * 30) {
                 failure = @"语音超过 30 秒，请缩短文字。";
             } else {
                 self.rate = rate;
@@ -132,10 +209,11 @@ static NSData *convert_audio(NSData *mono, double rate) {
                         || stats.clipped_count > 0) { failure = @"系统语音包含异常数据。"; break; }
                 }
                 if (failure == nil) {
-                    NSUInteger oldLength = self.mono.length;
-                    [self.mono increaseLengthBy:(NSUInteger)pcm.frameLength * sizeof(float)];
+                    NSMutableData *collected = self.streaming ? [NSMutableData data] : self.mono;
+                    NSUInteger oldLength = collected.length;
+                    [collected increaseLengthBy:(NSUInteger)pcm.frameLength * sizeof(float)];
                     // oldLength 是字节数，先转 uint8_t* 偏移，再转回 float*，避免多乘一次 4。
-                    float *destination = (float *)((uint8_t *)self.mono.mutableBytes + oldLength);
+                    float *destination = (float *)((uint8_t *)collected.mutableBytes + oldLength);
                     for (uint32_t frame = 0; frame < pcm.frameLength; ++frame) {
                         float sample = 0;
                         for (uint32_t channel = 0; channel < channels; ++channel) {
@@ -148,12 +226,24 @@ static NSData *convert_audio(NSData *mono, double rate) {
                         }
                         destination[frame] = sample;
                     }
+                    self.inputFrames += pcm.frameLength;
+                    if (self.streaming) source = collected;
                 }
             }
         }
     }
     if (failure != nil) self.ended = YES;
     double rate = self.rate;
+    // 入队也在锁内完成，防止并发到达的系统回调把 EOS 排到前一块之前。
+    if (self.streaming && source != nil && failure == nil) {
+        if (self.pendingBlocks >= 2048 || self.pendingBytes + source.length > 8 * 1024 * 1024) {
+            self.ended = YES;
+            failure = @"语音处理队列已满，请缩短文字后重试。";
+        } else {
+            [self enqueueMono:source rate:rate end:self.ended];
+        }
+        source = nil;
+    }
     [self.lock unlock];
     if (failure != nil) {
         [self complete:nil error:failure];
@@ -177,12 +267,15 @@ static NSData *convert_audio(NSData *mono, double rate) {
     completion:(void (^)(NSData *, NSString *))completion {
     self.completion = completion;
     AVSpeechSynthesisVoice *voice = [AVSpeechSynthesisVoice voiceWithIdentifier:voiceID];
-    if (voice == nil) { [self complete:nil error:@"所选语音不可用，请重新选择已安装的语音。"]; return; }
+    if (voice == nil || (voice.voiceTraits & (AVSpeechSynthesisVoiceTraitIsNoveltyVoice | AVSpeechSynthesisVoiceTraitIsPersonalVoice))) {
+        [self complete:nil error:@"所选普通系统语音不可用，请重新选择已安装的语音。"]; return;
+    }
     self.synthesizer = [[AVSpeechSynthesizer alloc] init];
     self.synthesizer.delegate = self;
     AVSpeechUtterance *utterance = [[AVSpeechUtterance alloc] initWithString:text];
     utterance.voice = voice;
-    utterance.rate = AVSpeechUtteranceDefaultSpeechRate;
+    utterance.rate = self.speechRate;
+    utterance.pitchMultiplier = self.pitch;
     // 合成器持有回调；回调弱引用 job，避免 job → synthesizer → block → job 的持有环。
     __weak CallBridgeSpeechJob *weakSelf = self;
     [self.synthesizer writeUtterance:utterance toBufferCallback:^(AVAudioBuffer *buffer) {
@@ -206,6 +299,7 @@ static NSData *convert_audio(NSData *mono, double rate) {
     [self.lock lock];
     self.cancelled = YES;
     self.completion = nil;
+    self.chunkHandler = nil;
     [self.lock unlock];
     [self.synthesizer stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
 }

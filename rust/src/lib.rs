@@ -14,13 +14,16 @@ FFI 安全前提：调用者必须提供真实有效、对齐且容量足够的�
 use std::mem::align_of;
 
 // pub use 把需要的类型和函数重新导出到库入口。
+mod mixer;
 mod pcm;
 mod player;
 mod session;
+mod voice_plugin;
 
 pub use pcm::{PcmStats, cb_pcm_measure, cb_render_mono};
 pub use player::*;
 pub use session::*;
+pub use voice_plugin::*;
 
 // 帧数是时间点数量；双声道一帧有两个 f32，所以样本数 = 帧数 × 2。
 const MAX_FRAMES: u32 = 4_096;

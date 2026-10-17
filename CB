@@ -1,0 +1,101 @@
+#!/bin/sh
+# 本文件的目的：提供仓库内的 CB 启动入口，不修改 shell 配置、不安装全局命令。
+# 将项目目录加入当前终端 PATH 后可直接输入 CB；构建、检查与主动声音测试分别选择。
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+app="$root/rust/build/app/CallBridge.app"
+binary="$app/Contents/MacOS/CallBridge"
+command=${1:-start}
+if [ "$#" -gt 0 ]; then shift; fi
+
+case "$command" in
+    help|--help|-h)
+        printf '%s\n' 'CB [start|build|check|voices|voice-provider-check|tts-check|converter-check|stream-check|stream-cancel-check|cancel-check|ui-check|preview-devices|preview-route-check|sender-check --confirm-virtual-io]' 'CB preview-check|preview-cancel-check UID --confirm-local-audio' 'CB voice-plugin-check FILE | voice-plugin-test FILE（内存合成，不播放）' 'CB background-check FILE（WAV 解码及内存混音，不播放）'
+        printf '%s\n' 'CB mixed-check FILE（真实 TTS＋WAV 内存组合测试，不播放）'
+        printf '%s\n' 'CB route-check（只读核对微信实际输入/输出设备，不录音）'
+        printf '%s\n' 'CB virtual-route-check（只读检查 BlackHole 2ch/16ch、实验 Link 及目标白名单，不发声）'
+        printf '%s\n' 'CB sender-device-check UID --confirm-virtual-io（明确指定虚拟写入 UID，发送固定测试句）'
+        printf '%s\n' 'CB mixed-preview-check|mixed-preview-cancel-check FILE UID --confirm-local-audio' 'CB mixed-sender-check|mixed-sender-cancel-check FILE --confirm-virtual-io'
+        exit 0 ;;
+esac
+# 未识别的额外参数不应被忽略，特别是主动发送必须原样确认。
+if [ "$command" = mixed-preview-check ] || [ "$command" = mixed-preview-cancel-check ]; then
+    if [ "$#" -ne 3 ] || [ -z "$1" ] || [ -z "$2" ] || [ "$3" != --confirm-local-audio ]; then
+        printf '%s\n' '本机会播放混合声音；需要 FILE UID --confirm-local-audio。' >&2
+        exit 2
+    fi
+elif [ "$command" = mixed-sender-check ] || [ "$command" = mixed-sender-cancel-check ]; then
+    if [ "$#" -ne 2 ] || [ -z "$1" ] || [ "$2" != --confirm-virtual-io ]; then
+        printf '%s\n' 'BlackHole 监听者可能收到混合声音；需要 FILE --confirm-virtual-io。' >&2
+        exit 2
+    fi
+elif [ "$command" = sender-device-check ]; then
+    if [ "$#" -ne 2 ] || [ -z "$1" ] || [ "$2" != --confirm-virtual-io ]; then
+        printf '%s\n' '需要 UID --confirm-virtual-io；其他监听者可能听到固定测试句。' >&2
+        exit 2
+    fi
+elif [ "$command" = sender-check ]; then
+    if [ "$#" -ne 1 ] || [ "$1" != --confirm-virtual-io ]; then
+        printf '%s\n' '发送会被其他 BlackHole 监听者收到；需要 sender-check --confirm-virtual-io。' >&2
+        exit 2
+    fi
+elif [ "$command" = preview-check ] || [ "$command" = preview-cancel-check ]; then
+    if [ "$#" -ne 2 ] || [ -z "$1" ] || [ "$2" != --confirm-local-audio ]; then
+        printf '%s\n' '本机会发声；需要 preview-check 或 preview-cancel-check UID --confirm-local-audio。' >&2
+        exit 2
+    fi
+elif [ "$command" = voice-plugin-check ] || [ "$command" = voice-plugin-test ] || [ "$command" = background-check ] || [ "$command" = mixed-check ]; then
+    if [ "$#" -ne 1 ] || [ -z "$1" ]; then
+        printf '%s\n' '需要提供一个本地文件路径。' >&2
+        exit 2
+    fi
+elif [ "$#" -ne 0 ]; then
+    printf '%s\n' '参数错误：使用 CB --help 查看用法。' >&2
+    exit 2
+fi
+case "$command" in
+    route-check)
+        preflight="$root/rust/build/preflight/callbridge-preflight"
+        if [ ! -x "$preflight" ]; then
+            printf '%s\n' '请先运行 sh rust/scripts/build-preflight.sh。' >&2
+            exit 1
+        fi
+        exec "$preflight" route-check ;;
+    mixed-preview-check|mixed-preview-cancel-check|mixed-sender-check|mixed-sender-cancel-check|sender-device-check) ;;
+    build) exec sh "$root/rust/scripts/build-app.sh" ;;
+    check)
+        cargo fmt --manifest-path "$root/rust/Cargo.toml" -- --check
+        exec cargo test --offline --manifest-path "$root/rust/Cargo.toml" ;;
+    start|voices|mixed-check|background-check|voice-provider-check|voice-plugin-check|voice-plugin-test|tts-check|converter-check|stream-check|stream-cancel-check|cancel-check|ui-check|sender-check|preview-devices|preview-route-check|virtual-route-check|preview-check|preview-cancel-check) ;;
+    *) printf '%s\n' '未知命令：使用 CB --help 查看用法。' >&2; exit 2 ;;
+esac
+if [ ! -x "$binary" ]; then
+    printf '%s\n' '尚未构建 App，请先运行 CB build。' >&2
+    exit 1
+fi
+case "$command" in
+    mixed-preview-check) exec "$binary" --mixed-preview-smoke "$1" "$2" --confirm-local-audio ;;
+    mixed-preview-cancel-check) exec "$binary" --mixed-preview-cancel-smoke "$1" "$2" --confirm-local-audio ;;
+    mixed-sender-check) exec "$binary" --mixed-sender-smoke "$1" --confirm-virtual-io ;;
+    mixed-sender-cancel-check) exec "$binary" --mixed-sender-cancel-smoke "$1" --confirm-virtual-io ;;
+    start) exec /usr/bin/open "$app" ;;
+    voices) exec "$binary" --voices ;;
+    background-check) exec "$binary" --background-check "$1" ;;
+    mixed-check) exec "$binary" --mixed-speech-check "$1" ;;
+    voice-provider-check) exec "$binary" --voice-provider-check ;;
+    voice-plugin-check) exec "$binary" --voice-plugin-check "$1" ;;
+    voice-plugin-test) exec "$binary" --voice-plugin-smoke "$1" ;;
+    preview-devices) exec "$binary" --preview-devices ;;
+    preview-route-check) exec "$binary" --preview-route-check ;;
+    virtual-route-check) exec "$binary" --virtual-route-check ;;
+    preview-check) exec "$binary" --preview-smoke "$1" --confirm-local-audio ;;
+    preview-cancel-check) exec "$binary" --preview-cancel-smoke "$1" --confirm-local-audio ;;
+    tts-check) exec "$binary" --tts-smoke ;;
+    converter-check) exec "$binary" --converter-check ;;
+    stream-check) exec "$binary" --stream-smoke ;;
+    stream-cancel-check) exec "$binary" --stream-cancel-smoke ;;
+    cancel-check) exec "$binary" --cancel-smoke ;;
+    ui-check) exec "$binary" --ui-smoke ;;
+    sender-check) exec "$binary" --sender-smoke --confirm-virtual-io ;;
+    sender-device-check) exec "$binary" --sender-device-smoke "$1" --confirm-virtual-io ;;
+esac

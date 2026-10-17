@@ -7,12 +7,22 @@ edition = "2024"
 rust-version = "1.85"
 publish = false
 
+[dependencies]
+# 用严格的结构化解析拒绝重复/未知字段，不自行编写 JSON 解析器。
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+
 [lib]
 crate-type = ["rlib", "staticlib"]
 
 [profile.release]
 # 不让 Rust panic 沿调用栈跨越 C 边界；abort 会终止进程，不是安全静音恢复机制。
 panic = "abort"
+
+[profile.release.build-override]
+# 本机工具链剥离过程宏符号后出现 LINKEDIT 对齐错误；保留构建依赖符号即可正常加载。
+# 只影响编译期宏/构建脚本，不关闭音频核心的 release 优化。
+strip = "none"
 
 [lints.rust]
 # 即使函数声明为 unsafe，内部危险操作也必须放进明确的 unsafe 块，便于逐处审查。

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "id": "org.callbridge.example.tingting-soft",
+  "version": "0.1.0",
+  "kind": "voice",
+  "core_version": "0.1.0",
+  "platforms": ["macos-arm64", "macos-x86_64"],
+  "dependencies": [],
+  "provider": "builtin.apple-speech",
+  "resource_formats": [],
+  "permissions": [],
+  "license": "Example configuration only; Apple voice not redistributed",
+  "display_name": "婷婷 · 舒缓",
+  "voice_id": "com.apple.voice.compact.zh-CN.Tingting",
+  "language": "zh-CN",
+  "rate": 0.45,
+  "pitch": 0.95
+}

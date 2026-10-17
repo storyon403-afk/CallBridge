@@ -13,8 +13,8 @@
     <key>CFBundleName</key><string>CallBridge</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <!-- 对外版本号与内部构建号分开；不能把构建号理解成系统版本。 -->
-    <key>CFBundleShortVersionString</key><string>0.2.0</string>
-    <key>CFBundleVersion</key><string>2</string>
+    <key>CFBundleShortVersionString</key><string>0.3.2</string>
+    <key>CFBundleVersion</key><string>5</string>
     <!-- 与 build-app.sh 的部署目标一致，不靠修改这个字符串就获得旧系统兼容性。 -->
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>

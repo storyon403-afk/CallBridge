@@ -23,7 +23,7 @@ cargo build --offline --release
 # dead_strip 去掉未引用代码；这里只链接 App 需要的原生模块，不加入诊断回读器。
 xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
     -isysroot "$sdk_root" -mmacosx-version-min=26.0 \
-    native/app.m native/speech_job.m native/sender.c target/release/libcallbridge_abi_probe.a \
+    native/app.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/speech_job.m native/stream_converter.m native/sender.c target/release/libcallbridge_abi_probe.a \
     -framework AppKit -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
     -Wl,-dead_strip -o "$app/Contents/MacOS/CallBridge"
 # 标准 .app 目录必须含可执行文件和 Info.plist；签名应在这些文件就位之后进行。

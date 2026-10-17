@@ -8,6 +8,12 @@
 // 默认参数非空；完成回调中 pcm / error 显式允许为空，表达成功数据或失败原因。
 NS_ASSUME_NONNULL_BEGIN
 @interface CallBridgeSpeechJob : NSObject
+// 语速/音高在构造时固定；默认 init 保留系统默认语速和原始音高，非法参数返回 nil。
+- (nullable instancetype)initWithSpeechRate:(float)speechRate pitch:(float)pitch;
+// 流式接口：多次交付 48 kHz mono Float32 块，最后 completion；两种回调均串行回到主线程。
+// 单块最多 4096 帧，总量最多 30 秒；取消后不再交付。一次性对象不可混用两个 start 接口。
+- (void)startStreamingText:(NSString *)text voice:(NSString *)voiceID
+    chunk:(void (^)(NSData *pcm))chunk completion:(void (^)(NSString * _Nullable error))completion;
 // 成功 pcm 是 48 kHz、Float32、单声道数据，回调切回主线程；取消后不交付结果。
 - (void)startText:(NSString *)text voice:(NSString *)voiceID
     completion:(void (^)(NSData * _Nullable pcm, NSString * _Nullable error))completion;

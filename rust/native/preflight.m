@@ -1,8 +1,9 @@
 /*
-本文件的目的：提供三个命令行预检入口——设备发现、系统语音合成、BlackHole 本地回环。
+本文件的目的：提供设备发现、微信进程路由、系统语音合成、BlackHole 本地回环预检。
 
 为什么把这些测试拆开？
 doctor 只看配置；tts-check 只在内存生成和转换 PCM；loopback-check 才会主动发送并回读。
+route-check 只读 HAL 的进程输入/输出设备列表，不读取音频、通话内容或权限数据库。
 这样能分清问题发生在设备发现、合成、转换还是路由，而不是只有一个模糊的“没声音”。
 
 这里是独立诊断宿主，不是窗口 App。JSON 中同时记录失败阶段、默认路由和是否启动过 IO，
@@ -149,6 +150,88 @@ static int doctor(void) {
                    @"defaults_before": before, @"defaults_after": after,
                    @"defaults_unchanged": @(unchanged), @"audio_io_started": @NO,
                    @"scope": @"Read-only discovery; no device or voice functionality certified." }, unchanged ? 0 : 1);
+}
+
+// 默认设备不等于应用正在使用的设备。按 SDK 规定，Devices 的 scope 分别选择输入/输出。
+// 数组查询先限制容量；设备/进程在两次查询间退出时如实返回错误，不把失败当作空列表。
+static NSData *object_list(AudioObjectID object, AudioObjectPropertySelector selector,
+                           AudioObjectPropertyScope scope, OSStatus *status) {
+    AudioObjectPropertyAddress address = {selector, scope, kAudioObjectPropertyElementMain};
+    UInt32 size = 0;
+    *status = AudioObjectGetPropertyDataSize(object, &address, 0, NULL, &size);
+    if (*status != noErr) return nil;
+    if (size > 4096 * sizeof(AudioObjectID) || size % sizeof(AudioObjectID) != 0) {
+        *status = kAudioHardwareBadPropertySizeError;
+        return nil;
+    }
+    if (size == 0) return [NSData data];
+    NSMutableData *storage = [NSMutableData dataWithLength:size];
+    UInt32 capacity = size;
+    *status = AudioObjectGetPropertyData(object, &address, 0, NULL, &size, storage.mutableBytes);
+    if (*status != noErr) return nil;
+    if (size > capacity || size % sizeof(AudioObjectID) != 0) {
+        *status = kAudioHardwareBadPropertySizeError;
+        return nil;
+    }
+    storage.length = size;
+    return storage;
+}
+
+static NSDictionary *process_running(AudioObjectID process, AudioObjectPropertySelector selector) {
+    UInt32 running = 0, size = sizeof(running);
+    OSStatus status = read_property(process, selector, kAudioObjectPropertyScopeGlobal, &size, &running);
+    if (status == noErr && (size != sizeof(running) || running > 1)) status = kAudioHardwareBadPropertySizeError;
+    return @{ @"available": @(status == noErr), @"value": status == noErr ? @(running != 0) : (id)NSNull.null,
+              @"status": @(status) };
+}
+
+static NSDictionary *process_devices(AudioObjectID process, AudioObjectPropertyScope scope) {
+    OSStatus status = noErr;
+    NSData *storage = object_list(process, kAudioProcessPropertyDevices, scope, &status);
+    NSMutableArray *devices = [NSMutableArray array];
+    const AudioObjectID *identifiers = storage.bytes;
+    for (NSUInteger index = 0; index < storage.length / sizeof(AudioObjectID); ++index) {
+        AudioObjectID device = identifiers[index];
+        [devices addObject:@{ @"id": @(device),
+            @"uid": read_string(device, kAudioDevicePropertyDeviceUID) ?: (id)NSNull.null,
+            @"name": read_string(device, kAudioObjectPropertyName) ?: (id)NSNull.null,
+            @"channels": channel_info(device, scope) }];
+    }
+    return @{ @"available": @(storage != nil), @"status": @(status), @"devices": devices };
+}
+
+static int route_check(void) {
+    NSDictionary *before = defaults_snapshot();
+    OSStatus status = noErr;
+    NSData *storage = object_list(kAudioObjectSystemObject, kAudioHardwarePropertyProcessObjectList,
+        kAudioObjectPropertyScopeGlobal, &status);
+    NSMutableArray *matches = [NSMutableArray array];
+    NSUInteger unreadable = 0;
+    BOOL readable = storage != nil;
+    const AudioObjectID *processes = storage.bytes;
+    for (NSUInteger index = 0; index < storage.length / sizeof(AudioObjectID); ++index) {
+        NSString *bundle = read_string(processes[index], kAudioProcessPropertyBundleID);
+        if (bundle == nil) { unreadable++; continue; }
+        // 只报告本机核对过的微信标识及其子标识，不公开其他应用的设备使用情况。
+        if (![bundle isEqual:@"com.tencent.xinWeChat"] && ![bundle hasPrefix:@"com.tencent.xinWeChat."]) continue;
+        NSDictionary *input = process_devices(processes[index], kAudioObjectPropertyScopeInput);
+        NSDictionary *output = process_devices(processes[index], kAudioObjectPropertyScopeOutput);
+        NSDictionary *runningInput = process_running(processes[index], kAudioProcessPropertyIsRunningInput);
+        NSDictionary *runningOutput = process_running(processes[index], kAudioProcessPropertyIsRunningOutput);
+        readable &= [input[@"available"] boolValue] && [output[@"available"] boolValue]
+            && [runningInput[@"available"] boolValue] && [runningOutput[@"available"] boolValue];
+        [matches addObject:@{ @"bundle_id": bundle, @"input": input, @"output": output,
+            @"running_input": runningInput, @"running_output": runningOutput }];
+    }
+    NSDictionary *after = defaults_snapshot();
+    BOOL unchanged = defaults_available(before) && defaults_available(after) && [before isEqual:after];
+    BOOL queried = readable && unchanged;
+    return emit(@{ @"stage": @"route-check", @"query_succeeded": @(queried), @"status": @(status),
+        @"wechat_processes": matches, @"matched_process_count": @(matches.count),
+        @"unreadable_process_identities": @(unreadable), @"defaults": after,
+        @"defaults_unchanged": @(unchanged), @"audio_io_started": @NO,
+        @"scope": @"Read-only HAL device snapshot, not audio capture, permission inspection or remote delivery proof. No match is inconclusive; take a snapshot during a call."
+    }, queried ? 0 : 1);
 }
 
 // 3. 合成结果收集器：系统回调和主线程观察共享状态，因此使用 NSLock。
@@ -429,6 +512,7 @@ int main(int argc, const char *argv[]) {
     // 6. 命令行是主动 IO 的确认边界；缺确认参数或参数不匹配，打印用法并退出 2。
     @autoreleasepool {
         if (argc == 2 && strcmp(argv[1], "doctor") == 0) return doctor();
+        if (argc == 2 && strcmp(argv[1], "route-check") == 0) return route_check();
         if (argc == 3 && strcmp(argv[1], "tts-check") == 0) {
             NSString *voice_id = [NSString stringWithUTF8String:argv[2]];
             if (voice_id != nil) return check_tts(voice_id, NO);
@@ -438,7 +522,7 @@ int main(int argc, const char *argv[]) {
             NSString *voice_id = [NSString stringWithUTF8String:argv[2]];
             if (voice_id != nil) return check_tts(voice_id, YES);
         }
-        fprintf(stderr, "usage: callbridge-preflight doctor | tts-check VOICE_ID | loopback-check VOICE_ID --confirm-virtual-io\n");
+        fprintf(stderr, "usage: callbridge-preflight doctor | route-check | tts-check VOICE_ID | loopback-check VOICE_ID --confirm-virtual-io\n");
         return 2;
     }
 }
