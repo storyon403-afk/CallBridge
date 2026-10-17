@@ -374,6 +374,28 @@ int32_t cb_sender_finish(CallBridgeSender *sender) {
     return sender == NULL ? -20004 : cb_player_finish(sender->player);
 }
 
+// 输入模块借用 sender；关闭时先取消两轨，再停输入，最后才能 close 释放这份句柄。
+void cb_sender_cancel(CallBridgeSender *sender) {
+    if (sender != NULL) cb_player_cancel(sender->player);
+}
+
+int32_t cb_sender_enable_environment(CallBridgeSender *sender, float gain) {
+    if (sender == NULL || sender->started) return -20004;
+    return cb_player_enable_environment(sender->player, gain);
+}
+
+int32_t cb_sender_push_environment(CallBridgeSender *sender, const float *source, uint32_t frames, uint32_t channels) {
+    return sender == NULL ? -20004 : cb_player_push_environment(sender->player, source, frames, channels);
+}
+
+int32_t cb_sender_set_environment_gain(CallBridgeSender *sender, float gain) {
+    return sender == NULL ? -20004 : cb_player_set_environment_gain(sender->player, gain);
+}
+
+uint32_t cb_sender_environment_dropped(CallBridgeSender *sender) {
+    return sender == NULL ? 0 : cb_player_environment_dropped(sender->player);
+}
+
 uint32_t cb_sender_underrun_frames(CallBridgeSender *sender) {
     return sender == NULL ? 0 : cb_player_underrun_frames(sender->player);
 }
@@ -393,8 +415,31 @@ int32_t cb_sender_set_background_gain(CallBridgeSender *sender, float gain) {
     return sender == NULL ? -20004 : cb_player_set_background_gain(sender->player, gain);
 }
 
+// 保持 AUHAL 和人声继续运行，只向 Rust 背景音轨发布暂停意图。
+int32_t cb_sender_set_background_paused(CallBridgeSender *sender, uint32_t paused) {
+    return sender == NULL ? -20004 : cb_player_set_background_paused(sender->player, paused);
+}
+
 uint32_t cb_sender_limited_frames(CallBridgeSender *sender) {
     return sender == NULL ? 0 : cb_player_limited_frames(sender->player);
+}
+
+// 保留同一 AUHAL 和背景，不通过关停/重开设备拼接下一句。
+int32_t cb_sender_enable_continuous(CallBridgeSender *sender) {
+    if (sender == NULL || sender->started) return -20004;
+    return cb_player_enable_continuous(sender->player);
+}
+
+int32_t cb_sender_next_speech(CallBridgeSender *sender) {
+    return sender == NULL ? -20004 : cb_player_next_speech(sender->player);
+}
+
+uint32_t cb_sender_is_continuous(CallBridgeSender *sender) {
+    return sender == NULL ? 0 : cb_player_is_continuous(sender->player);
+}
+
+uint32_t cb_sender_rendered_frames(CallBridgeSender *sender) {
+    return sender == NULL ? 0 : cb_player_rendered_frames(sender->player);
 }
 
 // 5. 真正启动 IO 前再次验证目标，避免准备和开始之间设备发生变化。

@@ -37,9 +37,11 @@ class MixedSpeechTests(unittest.TestCase):
         self.assertTrue(report["passed"])
         self.assertTrue(report["synthesis_started"])
         self.assertFalse(report["audio_io_started"])
-        expected = {"loop-2ch": (2, True), "loop-16ch": (16, True),
+        expected = {"loop-2ch": (2, True), "once-2ch": (2, False),
+                    "gains-2ch": (2, True), "cancel-2ch": (2, True), "pause-2ch": (2, True), "loop-16ch": (16, True),
                     "once-16ch": (16, False), "gains-16ch": (16, True),
-                    "cancel-16ch": (16, True)}
+                    "cancel-16ch": (16, True), "pause-16ch": (16, True),
+                    "continuous-2ch": (2, True), "continuous-16ch": (16, True)}
         cases = report["cases"]
         self.assertEqual(len(cases), len(expected))
         self.assertEqual({case["name"] for case in cases}, set(expected))
@@ -53,8 +55,12 @@ class MixedSpeechTests(unittest.TestCase):
                 self.assertTrue(case["background_observed"])
                 self.assertGreater(case["forced_underrun_frames"], 0)
                 self.assertEqual(case["late_callbacks"], 0)
-                self.assertEqual(case["gain_changes"], 4 if case["name"] == "gains-16ch" else 0)
-                if case["name"] == "cancel-16ch":
+                self.assertEqual(case["gain_changes"], 4 if case["name"].startswith("gains-") else 0)
+                self.assertEqual(case["pause_changes"], 4 if case["name"].startswith("pause-") else 0)
+                continuous = case["name"].startswith("continuous-")
+                self.assertEqual(case["reused_sentences"], 2 if continuous else 0)
+                self.assertEqual(case["gap_frames"], 32768 if continuous else 0)
+                if case["name"].startswith("cancel-"):
                     self.assertEqual(case["chunks"], 1)
                     self.assertEqual(case["position"], case["frames"])
                 else:

@@ -24,14 +24,32 @@ void cb_session_cancel(CallBridgeSession *session);
 typedef struct CallBridgePlayer CallBridgePlayer;
 // create 复制源数据；失败返回 NULL。frames 是单声道帧数，drain_frames 是静音尾部帧数。
 CallBridgePlayer *cb_player_create(const float *source, uint32_t frames, uint32_t drain_frames);
-// 流式播放器最多 1,440,000 单声道帧；预分配固定内存，只追加，不重用已发布槽。
+// 流式播放器每句最多 1,440,000 单声道帧；预分配固定内存，句内只追加，跨句须经过 next 的排空交接。
 CallBridgePlayer *cb_player_create_stream(uint32_t capacity_frames, uint32_t drain_frames);
+// 跨句只在已配置背景或环境音、首次 append/render/采集前独占启用；之后模式固定。0 成功，-1 空指针，-2 状态。
+int32_t cb_player_enable_continuous(CallBridgePlayer *player);
+// 同一控制线程在 done=1 后重用语音容量，可与 render 并发；背景不重置，不重启设备。
+// 句柄必须存活；禁止与配置/销毁并发。取消后不能复活；0 成功，-1 空指针，-2 未排空/非跨句/已取消。
+int32_t cb_player_next_speech(const CallBridgePlayer *player);
+uint32_t cb_player_is_continuous(const CallBridgePlayer *player);
+// 只用于检测回调是否继续消费；允许回绕，不是人声进度。查询须持有效句柄，禁止并发销毁。
+uint32_t cb_player_rendered_frames(const CallBridgePlayer *player);
+// 环境音配置仅在首次 append/render/采集回调前独占执行；48 kHz，预分配，不开启硬件。
+int32_t cb_player_enable_environment(CallBridgePlayer *player, float gain);
+// 单一输入回调可与单一 render 并发；source 有效对齐、交错 1/2 声道，frames 为 1..16384。
+// 0 已复制，1 满队列丢块，-1 非法参数/PCM，-2 未配置/已取消；严禁与配置/销毁并发。
+int32_t cb_player_push_environment(const CallBridgePlayer *player, const float *source, uint32_t frames, uint32_t channels);
+int32_t cb_player_set_environment_gain(const CallBridgePlayer *player, float gain);
+uint32_t cb_player_environment_dropped(const CallBridgePlayer *player);
+uint32_t cb_player_environment_underruns(const CallBridgePlayer *player);
 // 只在首次 append/render 前独占配置一次；禁止与任何 player 访问并发。source 是有效、对齐、
 // 不与 player 别名的 48 kHz mono Float32，最多 30 秒；复制后可释放。失败不改变配置。
 // looping 只能 0/1；gain 0～1；增加 240 帧淡出，原 drain 必须 <= 95760。0 成功，-1 参数，-2 状态。
 int32_t cb_player_set_background(CallBridgePlayer *player, const float *source, uint32_t frames, uint32_t looping, float gain);
 // 已配置后可与 render 并发更新增益；句内不可替换素材或循环模式。
 int32_t cb_player_set_background_gain(const CallBridgePlayer *player, float gain);
+// 0 继续、1 暂停；先淡出再冻结背景游标，不影响人声。句柄存活且不得并发配置/销毁。
+int32_t cb_player_set_background_paused(const CallBridgePlayer *player, uint32_t paused);
 uint32_t cb_player_limited_frames(const CallBridgePlayer *player);
 // append / finish 仅一个控制线程串行调用，可与 render 并发；源必须有效对齐且不别名。
 // append 复制整块：0 成功，-1 数据/容量无效，-2 已结束或取消；失败不发布半块。
@@ -45,6 +63,7 @@ void cb_player_cancel(const CallBridgePlayer *player);
 int32_t cb_player_set_gain(const CallBridgePlayer *player, float gain);
 uint32_t cb_player_position(const CallBridgePlayer *player);
 uint32_t cb_player_underrun_frames(const CallBridgePlayer *player);
+// done 仅指本句语音已排空；跨句模式此时仍混背景，不代表设备停止。
 uint32_t cb_player_done(const CallBridgePlayer *player);
 // 所有线程都不再访问该句柄后，只能销毁一次。
 void cb_player_destroy(CallBridgePlayer *player);
@@ -70,10 +89,22 @@ int32_t cb_sender_append(CallBridgeSender *sender, const float *samples, uint32_
 int32_t cb_sender_finish(CallBridgeSender *sender);
 uint32_t cb_sender_underrun_frames(CallBridgeSender *sender);
 int32_t cb_sender_start(CallBridgeSender *sender);
+// cancel 只发布静音意图，不释放；须先结束借用此 sender 的麦克风回调，再调用 close。
+void cb_sender_cancel(CallBridgeSender *sender);
+int32_t cb_sender_enable_environment(CallBridgeSender *sender, float gain);
+int32_t cb_sender_push_environment(CallBridgeSender *sender, const float *source, uint32_t frames, uint32_t channels);
+int32_t cb_sender_set_environment_gain(CallBridgeSender *sender, float gain);
+uint32_t cb_sender_environment_dropped(CallBridgeSender *sender);
 int32_t cb_sender_set_gain(CallBridgeSender *sender, float gain);
 // 仅 open 后、首次 append/start 前调用；沿用 player 的复制/格式契约，不启动设备。
 int32_t cb_sender_set_background(CallBridgeSender *sender, const float *source, uint32_t frames, uint32_t looping, float gain);
 int32_t cb_sender_set_background_gain(CallBridgeSender *sender, float gain);
+int32_t cb_sender_set_background_paused(CallBridgeSender *sender, uint32_t paused);
+// enable 仅 start/append 前；next 仅前句 done 后。复用同一个 Player/AUHAL，全部在控制线程串行调用。
+int32_t cb_sender_enable_continuous(CallBridgeSender *sender);
+int32_t cb_sender_next_speech(CallBridgeSender *sender);
+uint32_t cb_sender_is_continuous(CallBridgeSender *sender);
+uint32_t cb_sender_rendered_frames(CallBridgeSender *sender);
 uint32_t cb_sender_limited_frames(CallBridgeSender *sender);
 int32_t cb_sender_poll(CallBridgeSender *sender, uint32_t *position, uint32_t *done);
 // 二级指针让 close 成功后把调用方句柄设为 NULL；失败时保留尚不能安全释放的资源。

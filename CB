@@ -15,6 +15,7 @@ case "$command" in
         printf '%s\n' 'CB route-check（只读核对微信实际输入/输出设备，不录音）'
         printf '%s\n' 'CB virtual-route-check（只读检查 BlackHole 2ch/16ch、实验 Link 及目标白名单，不发声）'
         printf '%s\n' 'CB sender-device-check UID --confirm-virtual-io（明确指定虚拟写入 UID，发送固定测试句）'
+        printf '%s\n' 'CB mixed-device-check|mixed-device-cancel-check FILE UID --confirm-virtual-io（明确指定虚拟写入端的混音/停止测试）'
         printf '%s\n' 'CB mixed-preview-check|mixed-preview-cancel-check FILE UID --confirm-local-audio' 'CB mixed-sender-check|mixed-sender-cancel-check FILE --confirm-virtual-io'
         exit 0 ;;
 esac
@@ -22,6 +23,11 @@ esac
 if [ "$command" = mixed-preview-check ] || [ "$command" = mixed-preview-cancel-check ]; then
     if [ "$#" -ne 3 ] || [ -z "$1" ] || [ -z "$2" ] || [ "$3" != --confirm-local-audio ]; then
         printf '%s\n' '本机会播放混合声音；需要 FILE UID --confirm-local-audio。' >&2
+        exit 2
+    fi
+elif [ "$command" = mixed-device-check ] || [ "$command" = mixed-device-cancel-check ]; then
+    if [ "$#" -ne 3 ] || [ -z "$1" ] || [ -z "$2" ] || [ "$3" != --confirm-virtual-io ]; then
+        printf '%s\n' '需要 FILE UID --confirm-virtual-io；虚拟输入的监听者可能收到混合声音。' >&2
         exit 2
     fi
 elif [ "$command" = mixed-sender-check ] || [ "$command" = mixed-sender-cancel-check ]; then
@@ -61,7 +67,7 @@ case "$command" in
             exit 1
         fi
         exec "$preflight" route-check ;;
-    mixed-preview-check|mixed-preview-cancel-check|mixed-sender-check|mixed-sender-cancel-check|sender-device-check) ;;
+    mixed-preview-check|mixed-preview-cancel-check|mixed-sender-check|mixed-sender-cancel-check|sender-device-check|mixed-device-check|mixed-device-cancel-check) ;;
     build) exec sh "$root/rust/scripts/build-app.sh" ;;
     check)
         cargo fmt --manifest-path "$root/rust/Cargo.toml" -- --check
@@ -74,6 +80,8 @@ if [ ! -x "$binary" ]; then
     exit 1
 fi
 case "$command" in
+    mixed-device-check) exec "$binary" --mixed-device-smoke "$1" "$2" --confirm-virtual-io ;;
+    mixed-device-cancel-check) exec "$binary" --mixed-device-cancel-smoke "$1" "$2" --confirm-virtual-io ;;
     mixed-preview-check) exec "$binary" --mixed-preview-smoke "$1" "$2" --confirm-local-audio ;;
     mixed-preview-cancel-check) exec "$binary" --mixed-preview-cancel-smoke "$1" "$2" --confirm-local-audio ;;
     mixed-sender-check) exec "$binary" --mixed-sender-smoke "$1" --confirm-virtual-io ;;

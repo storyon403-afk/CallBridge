@@ -14,6 +14,7 @@ FFI 安全前提：调用者必须提供真实有效、对齐且容量足够的�
 use std::mem::align_of;
 
 // pub use 把需要的类型和函数重新导出到库入口。
+mod environment;
 mod mixer;
 mod pcm;
 mod player;

@@ -7,7 +7,9 @@
 
 流式缓冲为什么暂不循环复用？每句最多 30 秒，预分配至多 5.76 MB，只追加、不覆盖已发布帧。
 一个控制线程生产，一个音频线程消费；原子写入位置发布完整块，欠载补零但不跳过未来的人声。
-这是有总时长上限的流式播放，不是无限音频队列；每句结束后释放，不积累文本历史。
+这是每句有总时长上限的流式播放，不是无限音频队列。跨句模式复用同一块容量，不积累历史。
+跨句重用的关键是 drained：渲染者先完成所有人声读写，再发布“已排空”；此后只混背景。
+控制线程看到排空才能重置语音槽，最后发布新句。实时线程不等锁，也不会读取正在重置的槽。
 
 为什么使用 Atomic？
 音频线程推进位置，主线程读取进度或发出取消。原子变量让这些小状态能跨线程访问，
@@ -18,13 +20,16 @@
 本地消费完成不是远端已听见，cancel 也不能撤回已经送出去的声音。
 
 可选背景使用独立素材游标和增益：人声欠载时只有人声补零，背景按设备时间继续。
-人声 EOS 后背景淡出，随后仍保留原 drain 的完整静音；取消覆盖整个混合输出。
+默认人声 EOS 后背景淡出；显式跨句模式保留背景与设备，句间仍可暂停。取消覆盖整个混合输出。
+真实环境音通过独立的有界输入队列接入，先与人声相加，再与文件背景一起限幅；三轨音量独立。
+麦克风与输出各一个回调线程；销毁前两边都必须停止，不能只关输出就释放环境音队列。
 
 音量使用 0～1 的线性增益，跨线程只传递 f32 的原始位。播放中每帧最多变化 1/240，
 在 48 kHz 下最多约 5 ms 到达目标，避免拖动滑块时突然跳变；首次播放直接使用设定音量。
 
 线程契约：每个 Player 只能有一个串行 render 调用者；销毁前必须结束所有读写和回调。
 */
+use crate::environment::Environment;
 use crate::mixer::{Background, FADE_FRAMES};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -41,7 +46,11 @@ pub struct Player {
     drain_frames: u32,
     // 配置仅允许发生在发布任何语音/启动回调前；之后素材不可替换，增益通过原子更新。
     background: Option<Background>,
+    environment: Option<Environment>,
     render_started: AtomicBool,
+    continuous: bool,
+    drained: AtomicBool,
+    rendered_frames: AtomicU32,
 }
 
 impl Player {
@@ -85,7 +94,11 @@ impl Player {
             rendered_gain: AtomicU32::new(1.0_f32.to_bits()),
             drain_frames,
             background: None,
+            environment: None,
             render_started: AtomicBool::new(false),
+            continuous: false,
+            drained: AtomicBool::new(false),
+            rendered_frames: AtomicU32::new(0),
         })
     }
 
@@ -116,13 +129,23 @@ impl Player {
 
     // 2. 实时侧只填本次需要的帧，不合成语音、不读文件、不创建播放队列。
     unsafe fn render(&self, output: *mut f32, capacity: u32, frames: u32, channels: u32) -> i32 {
+        // 排空后不再读取或更新语音元数据；控制线程此时可能正在准备下一句。
+        let speech_idle = self.continuous && self.drained.load(Ordering::Acquire);
         // Acquire 配合 cancel 的 Release；只要观察到取消，就不能继续把源音频当作有效内容。
         let cancelled = self.cancelled.load(Ordering::Acquire);
         // 只有这个串行音频线程推进位置，因此自身读位置可以使用 Relaxed。
-        let position = self.position.load(Ordering::Relaxed);
+        let position = if speech_idle {
+            0
+        } else {
+            self.position.load(Ordering::Relaxed)
+        };
         // 先读取结束标志，再读取已发布长度，避免“结束为真却仍使用旧长度”截掉尾块。
-        let finished = self.finished.load(Ordering::Acquire);
-        let length = self.published.load(Ordering::Acquire);
+        let finished = !speech_idle && self.finished.load(Ordering::Acquire);
+        let length = if speech_idle {
+            0
+        } else {
+            self.published.load(Ordering::Acquire)
+        };
         let status = unsafe {
             crate::cb_render_mono(std::ptr::null(), 0, 0, output, capacity, frames, channels)
         };
@@ -139,7 +162,7 @@ impl Player {
         };
         let destination =
             unsafe { std::slice::from_raw_parts_mut(output, (frames * channels) as usize) };
-        let readable = if cancelled {
+        let readable = if cancelled || speech_idle {
             0
         } else {
             frames.min(length.saturating_sub(position))
@@ -156,15 +179,29 @@ impl Player {
         }
         self.rendered_gain.store(gain.to_bits(), Ordering::Relaxed);
         if !cancelled {
+            if let Some(environment) = &self.environment {
+                environment.mix(
+                    destination,
+                    channels as usize,
+                    readable,
+                    finished && !self.continuous,
+                    self.background.is_none(),
+                );
+            }
             if let Some(background) = &self.background {
-                background.mix(destination, channels as usize, readable, finished);
+                background.mix(
+                    destination,
+                    channels as usize,
+                    readable,
+                    finished && !self.continuous,
+                );
             }
         }
         // 填充期间主线程也可能取消，所以再检查一次；已发现取消就覆盖为静音。
         // 这里仍可能与更晚的取消竞态，不能宣传成“按下按钮的同一瞬间绝无在途音频”。
         if self.cancelled.load(Ordering::Acquire) {
             unsafe { output.write_bytes(0, (frames * channels) as usize) };
-        } else {
+        } else if !speech_idle {
             if !finished {
                 let missing = frames - readable;
                 let previous = self.underrun_frames.load(Ordering::Relaxed);
@@ -178,7 +215,13 @@ impl Player {
                 position.saturating_add(frames).min(total),
                 Ordering::Release,
             );
+            // 必须是本次回调最后一次语音状态写入：发布后生产者可以立即重用缓冲。
+            if self.continuous && finished && position.saturating_add(frames) >= total {
+                self.drained.store(true, Ordering::Release);
+            }
         }
+        // 句间 position 不动，但设备仍在消费背景；独立心跳避免误判为设备卡死。
+        self.rendered_frames.fetch_add(frames, Ordering::Relaxed);
         0
     }
 }
@@ -189,6 +232,57 @@ pub extern "C" fn cb_player_create_stream(capacity: u32, drain_frames: u32) -> *
     Player::stream(capacity, drain_frames).map_or(std::ptr::null_mut(), |player| {
         Box::into_raw(Box::new(player))
     })
+}
+
+#[unsafe(no_mangle)]
+// 仅首次 append/render 前独占调用，须已配置背景或环境音；设置后不能切回随句。
+pub unsafe extern "C" fn cb_player_enable_continuous(player: *mut Player) -> i32 {
+    let Some(player) = (unsafe { player.as_mut() }) else {
+        return -1;
+    };
+    if (player.background.is_none() && player.environment.is_none())
+        || player.render_started.load(Ordering::Acquire)
+        || player.published.load(Ordering::Acquire) != 0
+        || player.finished.load(Ordering::Acquire)
+        || player.cancelled.load(Ordering::Acquire)
+    {
+        return -2;
+    }
+    player.continuous = true;
+    0
+}
+
+#[unsafe(no_mangle)]
+// 与 append/finish 同一个控制线程串行；可与 render 并发。旧句排空前拒绝重用。
+// drained 的 Release/Acquire 是双向交接，不依赖主线程恰好比音频线程慢。
+pub unsafe extern "C" fn cb_player_next_speech(player: *const Player) -> i32 {
+    let Some(player) = (unsafe { player.as_ref() }) else {
+        return -1;
+    };
+    if !player.continuous
+        || player.cancelled.load(Ordering::Acquire)
+        || !player.drained.load(Ordering::Acquire)
+    {
+        return -2;
+    }
+    player.published.store(0, Ordering::Relaxed);
+    player.position.store(0, Ordering::Relaxed);
+    player.finished.store(false, Ordering::Relaxed);
+    player.underrun_frames.store(0, Ordering::Relaxed);
+    player.drained.store(false, Ordering::Release);
+    0
+}
+
+#[unsafe(no_mangle)]
+// 句柄必须存活，不能与配置/销毁并发；只查询已冻结的模式，不触发播放。
+pub unsafe extern "C" fn cb_player_is_continuous(player: *const Player) -> u32 {
+    unsafe { player.as_ref() }.map_or(0, |player| u32::from(player.continuous))
+}
+
+#[unsafe(no_mangle)]
+// 设备帧心跳允许 u32 回绕；调用方仅比较是否变化，不把它当成语音位置或累计时长。
+pub unsafe extern "C" fn cb_player_rendered_frames(player: *const Player) -> u32 {
+    unsafe { player.as_ref() }.map_or(0, |player| player.rendered_frames.load(Ordering::Relaxed))
 }
 
 #[unsafe(no_mangle)]
@@ -228,7 +322,9 @@ pub unsafe extern "C" fn cb_player_set_background(
     };
     player.background = Some(background);
     // 淡出本身会产生音频，不能占掉原本留给设备排空的静音尾部。
-    player.drain_frames += FADE_FRAMES;
+    if player.environment.is_none() {
+        player.drain_frames += FADE_FRAMES;
+    }
     0
 }
 
@@ -245,11 +341,121 @@ pub unsafe extern "C" fn cb_player_set_background_gain(player: *const Player, ga
 }
 
 #[unsafe(no_mangle)]
+// player 必须存活且不可与配置/销毁并发；可与单一 render 并发。0 继续、1 暂停。
+// 仅控制背景，不能恢复已取消的 Player；无素材返回 -2，非法指针/枚举返回 -1。
+pub unsafe extern "C" fn cb_player_set_background_paused(
+    player: *const Player,
+    paused: u32,
+) -> i32 {
+    let Some(player) = (unsafe { player.as_ref() }) else {
+        return -1;
+    };
+    if paused > 1 {
+        return -1;
+    }
+    if player.cancelled.load(Ordering::Acquire) {
+        return -2;
+    }
+    let Some(background) = &player.background else {
+        return -2;
+    };
+    background.set_paused(paused == 1);
+    0
+}
+
+#[unsafe(no_mangle)]
 // 返回触发混音硬限幅的累计帧数；只读原子计数，不能据此断言听感无失真。
 pub unsafe extern "C" fn cb_player_limited_frames(player: *const Player) -> u32 {
+    unsafe { player.as_ref() }.map_or(0, |player| {
+        player
+            .background
+            .as_ref()
+            .map_or(0, Background::limited_frames)
+            .saturating_add(player.environment.as_ref().map_or(0, Environment::limited))
+    })
+}
+
+#[unsafe(no_mangle)]
+// 控制线程在首次 append/render/capture 前独占配置；分配有界队列，不开启系统麦克风。
+pub unsafe extern "C" fn cb_player_enable_environment(player: *mut Player, gain: f32) -> i32 {
+    let Some(player) = (unsafe { player.as_mut() }) else {
+        return -1;
+    };
+    if player.environment.is_some()
+        || player.render_started.load(Ordering::Acquire)
+        || player.published.load(Ordering::Acquire) != 0
+        || player.finished.load(Ordering::Acquire)
+        || player.cancelled.load(Ordering::Acquire)
+    {
+        return -2;
+    }
+    if player.background.is_none() && player.drain_frames > 96_000 - FADE_FRAMES {
+        return -1;
+    }
+    let Some(environment) = Environment::new(gain) else {
+        return -1;
+    };
+    player.environment = Some(environment);
+    if player.background.is_none() {
+        player.drain_frames += FADE_FRAMES;
+    }
+    0
+}
+
+#[unsafe(no_mangle)]
+// 单一采集线程，48 kHz 交错 Float32，1/2 声道；源有效对齐且与对象不别名，复制后可重用。
+// 0 成功，1 队列满丢块（不是致命故障），-1 参数/PCM 非法，-2 未配置或已取消。
+// 可与 render/音量控制并发；配置和销毁前必须先结束输入与输出两边的回调。
+pub unsafe extern "C" fn cb_player_push_environment(
+    player: *const Player,
+    source: *const f32,
+    frames: u32,
+    channels: u32,
+) -> i32 {
+    let Some(player) = (unsafe { player.as_ref() }) else {
+        return -1;
+    };
+    if source.is_null()
+        || source as usize % std::mem::align_of::<f32>() != 0
+        || frames == 0
+        || frames > 16_384
+        || (channels != 1 && channels != 2)
+    {
+        return -1;
+    }
+    if player.cancelled.load(Ordering::Acquire) {
+        return -2;
+    }
+    let Some(environment) = &player.environment else {
+        return -2;
+    };
+    environment.push(
+        unsafe { std::slice::from_raw_parts(source, (frames * channels) as usize) },
+        channels as usize,
+    )
+}
+
+#[unsafe(no_mangle)]
+// 已配置后可与两边的回调并发；0% 只静音，不停止采集。整体取消不能靠改增益恢复。
+pub unsafe extern "C" fn cb_player_set_environment_gain(player: *const Player, gain: f32) -> i32 {
     unsafe { player.as_ref() }
-        .and_then(|player| player.background.as_ref())
-        .map_or(0, Background::limited_frames)
+        .and_then(|player| player.environment.as_ref())
+        .map_or(-2, |environment| environment.set_gain(gain))
+}
+
+#[unsafe(no_mangle)]
+// 统计为只读原子计数，允许 u32 回绕；不是端到端延迟或录音质量测量。
+pub unsafe extern "C" fn cb_player_environment_dropped(player: *const Player) -> u32 {
+    unsafe { player.as_ref() }
+        .and_then(|player| player.environment.as_ref())
+        .map_or(0, Environment::dropped)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cb_player_environment_underruns(player: *const Player) -> u32 {
+    unsafe { player.as_ref() }
+        .and_then(|player| player.environment.as_ref())
+        .map_or(0, Environment::underruns)
 }
 
 #[unsafe(no_mangle)]
@@ -363,6 +569,11 @@ pub unsafe extern "C" fn cb_player_underrun_frames(player: *const Player) -> u32
 // 正常播完与被取消是两回事；取消后的 done 必须为 0，不能伪装成自然完成。
 pub unsafe extern "C" fn cb_player_done(player: *const Player) -> u32 {
     unsafe { player.as_ref() }.map_or(0, |player| {
+        if player.continuous {
+            return u32::from(
+                !player.cancelled.load(Ordering::Acquire) && player.drained.load(Ordering::Acquire),
+            );
+        }
         u32::from(
             !player.cancelled.load(Ordering::Acquire)
                 && player.finished.load(Ordering::Acquire)
@@ -384,6 +595,39 @@ pub unsafe extern "C" fn cb_player_destroy(player: *mut Player) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_pause_ffi_validates_arguments_and_cannot_resume_cancelled_player() {
+        assert_eq!(
+            unsafe { cb_player_set_background_paused(std::ptr::null(), 1) },
+            -1
+        );
+        let mut player = Player::stream(1000, 32).unwrap();
+        assert_eq!(unsafe { cb_player_set_background_paused(&player, 1) }, -2);
+        assert_eq!(
+            unsafe { cb_player_set_background(&mut player, [0.3; 7].as_ptr(), 7, 1, 0.2) },
+            0
+        );
+        assert_eq!(unsafe { cb_player_set_background_paused(&player, 2) }, -1);
+        assert_eq!(unsafe { cb_player_set_background_paused(&player, 1) }, 0);
+        assert_eq!(player.append(&[0.1; 1000]), 0);
+        assert_eq!(unsafe { cb_player_finish(&player) }, 0);
+        let mut output = [9.0; 2 * 1400];
+        assert_eq!(
+            unsafe { player.render(output.as_mut_ptr(), 2800, 1400, 2) },
+            0
+        );
+        assert!(output[..2000].iter().all(|sample| *sample == 0.1));
+        assert!(output[2000..].iter().all(|sample| *sample == 0.0));
+        assert_eq!(unsafe { cb_player_done(&player) }, 1);
+        unsafe { cb_player_cancel(&player) };
+        assert_eq!(unsafe { cb_player_set_background_paused(&player, 0) }, -2);
+        assert_eq!(
+            unsafe { player.render(output.as_mut_ptr(), 2800, 1400, 2) },
+            0
+        );
+        assert!(output.iter().all(|sample| *sample == 0.0));
+    }
 
     #[test]
     fn background_survives_speech_underrun_but_cancel_silences_everything() {

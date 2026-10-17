@@ -50,18 +50,18 @@ class OutputGuardTests(unittest.TestCase):
                 self.assertFalse(report["audio_io_started"])
 
     def commands(self):
-        for route in ("preview", "sender"):
+        for route in ("preview", "sender", "device"):
             for cancel in ("", "-cancel"):
                 yield (f"mixed-{route}{cancel}-check", f"--mixed-{route}{cancel}-smoke", route)
 
     def test_both_entrypoints_require_matching_confirmation(self):
         for command, native, route in self.commands():
-            prefix = ["file.wav", "device"] if route == "preview" else ["file.wav"]
+            prefix = ["file.wav", "device"] if route != "sender" else ["file.wav"]
             flag = "--confirm-local-audio" if route == "preview" else "--confirm-virtual-io"
             wrong = "--confirm-virtual-io" if route == "preview" else "--confirm-local-audio"
             invalid = [[], prefix, prefix + [wrong], prefix + [flag, "extra"],
                        [""] + prefix[1:] + [flag]]
-            if route == "preview":
+            if route != "sender":
                 invalid.append(["file.wav", "", flag])
             for executable, entry in ((ROOT / "CB", command), (BINARY, native)):
                 for arguments in invalid:
@@ -74,7 +74,8 @@ class OutputGuardTests(unittest.TestCase):
             path = Path(directory) / "bad.wav"
             path.write_bytes(b"not a WAV")
             for command, native, route in self.commands():
-                arguments = [path, "device", "--confirm-local-audio"] if route == "preview" else [path, "--confirm-virtual-io"]
+                flag = "--confirm-local-audio" if route == "preview" else "--confirm-virtual-io"
+                arguments = [path, "device", flag] if route != "sender" else [path, flag]
                 for executable, entry in ((ROOT / "CB", command), (BINARY, native)):
                     with self.subTest(entry=entry):
                         result = invoke(executable, entry, *arguments)
@@ -84,16 +85,31 @@ class OutputGuardTests(unittest.TestCase):
                         self.assertFalse(report["synthesis_started"])
                         self.assertFalse(report["audio_io_started"])
 
+    def test_mixed_device_rejects_non_writer_before_synthesis(self):
+        with tempfile.TemporaryDirectory(prefix="callbridge-route-guard-") as directory:
+            path = Path(directory) / "tone.wav"
+            make_background(path)
+            for cancel in ("", "-cancel"):
+                for executable, entry in ((ROOT / "CB", f"mixed-device{cancel}-check"),
+                                          (BINARY, f"--mixed-device{cancel}-smoke")):
+                    for uid in ("BuiltInSpeakerDevice", "BuiltInMicrophoneDevice", "CallBridgeLink_2_UID", "unknown"):
+                        with self.subTest(entry=entry, uid=uid):
+                            result = invoke(executable, entry, path, uid, "--confirm-virtual-io")
+                            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                            report = json.loads(result.stdout)
+                            self.assertFalse(report["synthesis_started"])
+                            self.assertFalse(report["audio_io_started"])
 
-def check_device(preview_uid):
-    route = "preview" if preview_uid is not None else "sender"
+
+def check_device(preview_uid, virtual_uid="BlackHole16ch_UID"):
+    route = "preview" if preview_uid is not None else "device"
     reports = []
     with tempfile.TemporaryDirectory(prefix="callbridge-output-") as directory:
         path = Path(directory) / "tone.wav"
         make_background(path)
         for cancelling in (False, True):
             command = f"mixed-{route}{'-cancel' if cancelling else ''}-check"
-            arguments = [path, preview_uid, "--confirm-local-audio"] if preview_uid is not None else [path, "--confirm-virtual-io"]
+            arguments = [path, preview_uid, "--confirm-local-audio"] if preview_uid is not None else [path, virtual_uid, "--confirm-virtual-io"]
             result = invoke(ROOT / "CB", command, *arguments)
             if result.returncode != 0:
                 raise RuntimeError(result.stdout + result.stderr)
@@ -101,10 +117,10 @@ def check_device(preview_uid):
             reports.append(report)
             valid = (report["passed"] and report["audio_io_started"]
                      and report["virtual_output_started"] == (preview_uid is None)
-                     and report["output_uid"] == (preview_uid if preview_uid is not None else "BlackHole16ch_UID")
+                     and report["output_uid"] == (preview_uid if preview_uid is not None else virtual_uid)
                      and report["background_frames"] == 24000 and report["background_gain"] == 0.1
                      and report["cleanup_status"] == 0 and report["defaults_unchanged"]
-                     and report["limited_frames"] == 0 and report["cancelled"] == cancelling
+                     and report["limited_frames"] == 0 and report["underrun_frames"] == 0 and report["cancelled"] == cancelling
                      and report["position"] >= (24000 if cancelling else report["frames"] + 240))
             if not valid:
                 raise RuntimeError(json.dumps(report, ensure_ascii=False))
@@ -117,6 +133,7 @@ if __name__ == "__main__":
     routes = parser.add_mutually_exclusive_group()
     routes.add_argument("--preview", metavar="UID")
     routes.add_argument("--blackhole", action="store_true")
+    routes.add_argument("--virtual", metavar="UID", choices=("CallBridgeLink_UID", "BlackHole2ch_UID", "BlackHole16ch_UID"))
     parser.add_argument("--confirm-local-audio", action="store_true")
     parser.add_argument("--confirm-virtual-io", action="store_true")
     args = parser.parse_args()
@@ -124,10 +141,10 @@ if __name__ == "__main__":
         if not args.preview or not args.confirm_local_audio or args.confirm_virtual_io:
             parser.error("试听需要非空 UID 与 --confirm-local-audio，不接受虚拟输出确认")
         check_device(args.preview)
-    elif args.blackhole:
+    elif args.blackhole or args.virtual is not None:
         if not args.confirm_virtual_io or args.confirm_local_audio:
-            parser.error("BlackHole 输出需要 --confirm-virtual-io，不接受本机试听确认")
-        check_device(None)
+            parser.error("虚拟输出需要 --confirm-virtual-io，不接受本机试听确认")
+        check_device(None, args.virtual or "BlackHole16ch_UID")
     elif args.confirm_local_audio or args.confirm_virtual_io:
         parser.error("确认前须选择明确输出目标")
     else:
