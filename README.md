@@ -74,14 +74,16 @@
 
 本机音频演示 App 的构建要求：Apple Silicon、macOS 26+、Apple Command Line Tools、Rust，以及callbridge 虚拟音频引擎 （先前计划的[BlackHole 16ch/2ch](https://github.com/ExistentialAudio/BlackHole)经实测未知bug不可行,待以后详细探索）。设备设为 48 kHz，系统安装 Tingting 或 Samantha 语音。
 
-在项目根目录运行：
+全局命令已配置后，可在任意目录运行：
 
 ```sh
-./CB build
-./CB
+cb build
+cb
 ```
 
-也可双击 `rust/build/app/CallBridge.app`。在当前终端执行 `export PATH="$PWD:$PATH"` 后，可直接用 `CB` 启动；不需要修改系统目录。
+`cb` 打开主面板，`cbt` 切换文字窗口。全局入口位于 `~/.local/bin/`，该目录需加入 shell 的 `PATH`；当前机器已配置，重开终端生效。也可双击 `rust/build/app/CallBridge.app`。
+
+尚未配置全局入口时，可在项目目录运行 `./CB build`、`./CB` 或 `./CBT`；它们是全局命令调用的仓库脚本。项目移动后需更新全局入口中的路径。
 
 构建脚本离线编译并进行本地 ad-hoc 签名；不安装音频驱动，不更改系统默认设备，不生成公证发行包。
 
@@ -89,9 +91,9 @@
 
 ## 使用
 
-- `./CB` 打开主面板；四个入口随窗口宽度排列，小窗可滚动访问。
+- `cb` 打开主面板；四个入口随窗口宽度排列，小窗可滚动访问。
 - 在“音频模拟”选择音色与通话输出，在“混音设置”管理文件背景和真实环境。
-- `./CBT` 打开或关闭独立文字浮窗，沿用本次应用设置；主面板关闭后仍可输入发送。
+- `cbt` 打开或关闭独立文字浮窗，沿用本次应用设置；主面板关闭后仍可输入发送。
 - 关闭文字窗会停止全部声音；再次打开保留草稿，不自动发送。更新后先退出旧 App，再启动。
 
 
@@ -104,4 +106,4 @@
 
 ## 参考
 
-[ftop：README 以及后来ui参考](https://github.com/Nongfsq/ftop) · [Apple：Core Audio 数据流](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/CoreAudioOverview/ARoadmaptoCommonTasks/ARoadmaptoCommonTasks.html) · [BlackHole：应用间音频回环](https://github.com/ExistentialAudio/BlackHole)
+[ftop：README 以及后来ui参考](https://github.com/Nongfsq/ftop) · [Apple：Core Audio 数据流](https://developer.apple.com/library/archive/documentation/MusicAudio/Conceptual/CoreAudioOverview/ARoadmaptoCommonTasks/ARoadmaptoCommonTasks.html) · [BlackHole：应用间音频回环](https://github.com/ExistentialAudio/BlackHole) · [个人音频模拟引擎参考](https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx)

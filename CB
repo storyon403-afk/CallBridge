@@ -1,6 +1,6 @@
 #!/bin/sh
-# 本文件的目的：提供仓库内的 CB 启动入口，不修改 shell 配置、不安装全局命令。
-# 将项目目录加入当前终端 PATH 后可直接输入 CB；构建、检查与主动声音测试分别选择。
+# 本文件的目的：实现 cb 的启动与子命令分发；全局 cb 包装脚本通过绝对路径调用本文件。
+# 资源位置以本文件所在目录为准，因此从任意工作目录启动都能定位 App；启动时不修改 shell 配置。
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 app="$root/rust/build/app/CallBridge.app"
@@ -10,17 +10,17 @@ if [ "$#" -gt 0 ]; then shift; fi
 
 case "$command" in
     help|--help|-h)
-        printf '%s\n' 'CB [start|build|check|voices|voice-provider-check|tts-check|converter-check|stream-check|stream-cancel-check|cancel-check|ui-check|preview-devices|preview-route-check|sender-check --confirm-virtual-io]' 'CB preview-check|preview-cancel-check UID --confirm-local-audio' 'CB voice-plugin-check FILE | voice-plugin-test FILE（内存合成，不播放）' 'CB background-check FILE（WAV 解码及内存混音，不播放）'
-        printf '%s\n' 'CB mixed-check FILE（真实 TTS＋WAV 内存组合测试，不播放）'
-        printf '%s\n' 'CB prosody-speech-check VOICE_ID --confirm-system-tts（真实 Apple 分段内存检查，不播放）'
-        printf '%s\n' 'CB prosody-corpus-check VOICE_ID --confirm-system-tts（40 句原样/自动断句对照，只内存合成）'
-        printf '%s\n' 'CB prosody-benchmark VOICE_ID --confirm-system-tts（6 次预热＋每模式 100 次性能采样，只内存合成）'
-        printf '%s\n' 'CB prosody-listen VOICE_ID OUTPUT_UID CASE_ID --confirm-local-audio（交互 A/B 听评，TTS＋本机播放）'
-        printf '%s\n' 'CB route-check（只读核对微信实际输入/输出设备，不录音）'
-        printf '%s\n' 'CB virtual-route-check（只读检查 BlackHole 2ch/16ch、实验 Link 及目标白名单，不发声）'
-        printf '%s\n' 'CB sender-device-check UID --confirm-virtual-io（明确指定虚拟写入 UID，发送固定测试句）'
-        printf '%s\n' 'CB mixed-device-check|mixed-device-cancel-check FILE UID --confirm-virtual-io（明确指定虚拟写入端的混音/停止测试）'
-        printf '%s\n' 'CB mixed-preview-check|mixed-preview-cancel-check FILE UID --confirm-local-audio' 'CB mixed-sender-check|mixed-sender-cancel-check FILE --confirm-virtual-io'
+        printf '%s\n' 'cb [start|build|check|voices|voice-provider-check|tts-check|converter-check|stream-check|stream-cancel-check|cancel-check|ui-check|preview-devices|preview-route-check|sender-check --confirm-virtual-io]' 'cb preview-check|preview-cancel-check UID --confirm-local-audio' 'cb voice-plugin-check FILE | voice-plugin-test FILE（内存合成，不播放）' 'cb background-check FILE（WAV 解码及内存混音，不播放）'
+        printf '%s\n' 'cb mixed-check FILE（真实 TTS＋WAV 内存组合测试，不播放）'
+        printf '%s\n' 'cb prosody-speech-check VOICE_ID --confirm-system-tts（真实 Apple 分段内存检查，不播放）'
+        printf '%s\n' 'cb prosody-corpus-check VOICE_ID --confirm-system-tts（40 句原样/自动断句对照，只内存合成）'
+        printf '%s\n' 'cb prosody-benchmark VOICE_ID --confirm-system-tts（6 次预热＋每模式 100 次性能采样，只内存合成）'
+        printf '%s\n' 'cb prosody-listen VOICE_ID OUTPUT_UID CASE_ID --confirm-local-audio（交互 A/B 听评，TTS＋本机播放）'
+        printf '%s\n' 'cb route-check（只读核对微信实际输入/输出设备，不录音）'
+        printf '%s\n' 'cb virtual-route-check（只读检查 BlackHole 2ch/16ch、实验 Link 及目标白名单，不发声）'
+        printf '%s\n' 'cb sender-device-check UID --confirm-virtual-io（明确指定虚拟写入 UID，发送固定测试句）'
+        printf '%s\n' 'cb mixed-device-check|mixed-device-cancel-check FILE UID --confirm-virtual-io（明确指定虚拟写入端的混音/停止测试）'
+        printf '%s\n' 'cb mixed-preview-check|mixed-preview-cancel-check FILE UID --confirm-local-audio' 'cb mixed-sender-check|mixed-sender-cancel-check FILE --confirm-virtual-io'
         exit 0 ;;
 esac
 # 未识别的额外参数不应被忽略，特别是主动发送必须原样确认。
@@ -70,7 +70,7 @@ elif [ "$command" = voice-plugin-check ] || [ "$command" = voice-plugin-test ] |
         exit 2
     fi
 elif [ "$#" -ne 0 ]; then
-    printf '%s\n' '参数错误：使用 CB --help 查看用法。' >&2
+    printf '%s\n' '参数错误：使用 cb --help 查看用法。' >&2
     exit 2
 fi
 case "$command" in
@@ -91,10 +91,10 @@ case "$command" in
         cargo fmt --manifest-path "$root/rust/Cargo.toml" -- --check
         exec cargo test --offline --manifest-path "$root/rust/Cargo.toml" ;;
     start|voices|mixed-check|background-check|voice-provider-check|voice-plugin-check|voice-plugin-test|tts-check|converter-check|stream-check|stream-cancel-check|cancel-check|ui-check|sender-check|preview-devices|preview-route-check|virtual-route-check|preview-check|preview-cancel-check) ;;
-    *) printf '%s\n' '未知命令：使用 CB --help 查看用法。' >&2; exit 2 ;;
+    *) printf '%s\n' '未知命令：使用 cb --help 查看用法。' >&2; exit 2 ;;
 esac
 if [ ! -x "$binary" ]; then
-    printf '%s\n' '尚未构建 App，请先运行 CB build。' >&2
+    printf '%s\n' '尚未构建 App，请先运行 cb build。' >&2
     exit 1
 fi
 case "$command" in

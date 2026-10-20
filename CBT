@@ -1,15 +1,22 @@
 #!/bin/sh
 # 本文件的目的：切换同一 CallBridge 进程中的文字窗口，不创建第二套音频会话。
-# Launch Services 把固定 URL 交给既有应用；只控制窗口，不附带文字、设备或发送许可。
+# 全局 cbt 包装脚本通过绝对路径调用本文件。Launch Services 只控制窗口，不附带发送许可。
 set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "$#" -eq 1 ]; then
+    case "$1" in
+        help|--help|-h)
+            printf '%s\n' 'cbt（打开或关闭文字窗口；关闭会停止全部音频）'
+            exit 0 ;;
+    esac
+fi
 if [ "$#" -ne 0 ]; then
-    printf '%s\n' '用法：./CBT（打开或关闭文字窗口；关闭会停止全部音频）' >&2
+    printf '%s\n' '用法：cbt（打开或关闭文字窗口；关闭会停止全部音频）' >&2
     exit 2
 fi
 app="$root/rust/build/app/CallBridge.app"
 if [ ! -x "$app/Contents/MacOS/CallBridge" ]; then
-    printf '%s\n' '尚未构建 App，请先运行 ./CB build。' >&2
+    printf '%s\n' '尚未构建 App，请先运行 cb build。' >&2
     exit 1
 fi
 exec /usr/bin/open -a "$app" 'callbridge://text/toggle'
