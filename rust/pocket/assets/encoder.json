@@ -1,0 +1,6 @@
+{
+  "name": "mimi_encode.onnx",
+  "bytes": 39488710,
+  "sha256": "8c40f49f4d9432c159d18fc96e76f8abab8f6ad1dd280785a815c60cacafbf2e",
+  "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/mimi_encode.onnx"
+}

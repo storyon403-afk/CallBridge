@@ -29,10 +29,18 @@ static BOOL allowed_voice(AVSpeechSynthesisVoice *voice) {
 @interface CBVoiceDescriptor ()
 - (instancetype)initWithVoice:(AVSpeechSynthesisVoice *)voice preset:(const CallBridgeVoicePreset *)preset;
 - (instancetype)initPocket;
+- (instancetype)initPersonal:(NSDictionary *)profile;
 @end
 @implementation CBVoiceDescriptor
 - (instancetype)initPocket {
     if ((self = [super init])) { _identifier = CBPocketIdentifier(); _voiceID = _identifier; _name = @"Pocket · 中文示例音色"; _language = @"zh-CN"; _gender = @"参考音色"; _quality = 0; _rate = 1; _pitch = 1; _preset = NO; }
+    return self;
+}
+- (instancetype)initPersonal:(NSDictionary *)profile {
+    if ((self=[self initPocket])) {
+        _identifier=[@"plugin.pocket-tts-zh-4l.personal." stringByAppendingString:profile[@"id"]];
+        _voiceID=_identifier; _name=[@"个人 · " stringByAppendingString:profile[@"name"]]; _gender=@"参考音色";
+    }
     return self;
 }
 - (instancetype)initWithVoice:(AVSpeechSynthesisVoice *)voice preset:(const CallBridgeVoicePreset *)preset {
@@ -83,9 +91,9 @@ NSString *CBPreviewPhrase(NSString *language) {
 @end
 
 id<CBVoiceTask> CBMakeVoiceTask(CBVoiceDescriptor *voice, NSError **error) {
-    if ([voice.identifier isEqual:CBPocketIdentifier()]) {
+    if (CBIsPocketVoice(voice.identifier)) {
         if (!CBPocketReady()) { voice_error(error, -23, @"Pocket 插件未安装或尚未通过校验"); return nil; }
-        return CBMakePocketTask(NO);
+        return [voice.identifier isEqual:CBPocketIdentifier()] ? CBMakePocketTask(NO) : CBMakePersonalPocketTask(voice.identifier);
     }
     AVSpeechSynthesisVoice *systemVoice = voice ? [AVSpeechSynthesisVoice voiceWithIdentifier:voice.voiceID] : nil;
     if (!allowed_voice(systemVoice) || ![systemVoice.language isEqual:voice.language]) {
@@ -103,7 +111,7 @@ id<CBVoiceTask> CBMakeProsodyVoiceTask(CBVoiceDescriptor *voice, uint64_t genera
     uint32_t mode, NSError **error) {
     // 原样模式仍走旧 provider，便于与计划模式对照，不强迫所有用户启用实验规则。
     id<CBVoiceTask> baseline = CBMakeVoiceTask(voice, error);
-    if (baseline == nil || mode == 0 || [voice.identifier isEqual:CBPocketIdentifier()]) return baseline;
+    if (baseline == nil || mode == 0 || CBIsPocketVoice(voice.identifier)) return baseline;
     if (mode > 5 || generation == 0) { voice_error(error, -1, @"韵律模式或任务代次无效。"); return nil; }
     return CBCreatePlanTask(voice.voiceID, voice.language, voice.rate, voice.pitch,
         generation, mode, ^id<CBVoiceTask>(float rate, float pitch) {
@@ -165,7 +173,10 @@ CBVoiceDescriptor *CBReadVoicePreset(NSURL *url, NSError **error) {
 }
 - (NSArray<CBVoiceDescriptor *> *)voices {
     NSArray *voices = [CBSystemVoices() arrayByAddingObjectsFromArray:self.presets];
-    return CBPocketReady() ? [voices arrayByAddingObject:[[CBVoiceDescriptor alloc] initPocket]] : voices;
+    if (!CBPocketReady()) return voices;
+    NSMutableArray *all=[[voices arrayByAddingObject:[[CBVoiceDescriptor alloc] initPocket]] mutableCopy];
+    for (NSDictionary *profile in CBPocketPersonalVoices()) [all addObject:[[CBVoiceDescriptor alloc] initPersonal:profile]];
+    return all;
 }
 - (BOOL)addPreset:(CBVoiceDescriptor *)preset error:(NSError **)error {
     if (!preset.preset || self.presets.count >= 64) {

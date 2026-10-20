@@ -28,16 +28,16 @@ mkdir -p build/prosody-check
 cargo build --offline --release
 xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
     -isysroot "$sdk_root" -mmacosx-version-min=26.0 $trace_flag \
-    native/prosody_listen.m native/prosody_corpus.m native/voice_provider.m native/pocket_provider.m native/plan_task.m \
+    native/prosody_listen.m native/prosody_corpus.m native/voice_provider.m native/pocket_provider.m native/background_audio.m native/plan_task.m \
     native/speech_job.m native/stream_converter.m native/sender.c target/release/libcallbridge_abi_probe.a \
     -framework Foundation -framework AVFAudio -framework AVFoundation -framework AudioToolbox -framework CoreAudio \
     -Wl,-dead_strip -o "build/prosody-check/$binary_name"
 if [ "$check_only" -eq 1 ]; then
     xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
         -isysroot "$sdk_root" -mmacosx-version-min=26.0 -DCALLBRIDGE_LISTEN_FAKE \
-        native/prosody_listen.m native/prosody_corpus.m native/voice_provider.m native/pocket_provider.m native/plan_task.m \
+        native/prosody_listen.m native/prosody_corpus.m native/voice_provider.m native/pocket_provider.m native/background_audio.m native/plan_task.m \
         native/speech_job.m native/stream_converter.m native/prosody_listen_fake.c target/release/libcallbridge_abi_probe.a \
-        -framework Foundation -framework AVFAudio -framework AVFoundation \
+        -framework Foundation -framework AVFAudio -framework AVFoundation -framework AudioToolbox \
         -Wl,-dead_strip -o build/prosody-check/prosody-listen-check
     exec build/prosody-check/prosody-listen-check --self-check
 fi

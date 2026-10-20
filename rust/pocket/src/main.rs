@@ -3,6 +3,7 @@ mod model;
 mod package;
 mod quality;
 mod text;
+mod voice;
 use anyhow::{Result, ensure};
 use std::{
     io::{Read, Write},
@@ -20,12 +21,36 @@ fn entry() -> Result<()> {
         println!("{}", package::CATALOG);
         return Ok(());
     }
+    if args.get(1).map(String::as_str) == Some("encoder-catalog") {
+        println!("{}", voice::ENCODER);
+        return Ok(());
+    }
     ensure!(
         args.len() >= 3,
         "用法: callbridge-pocket frontend|noise|infer RESOURCE_DIR [TEXT]"
     );
     let root = Path::new(&args[2]);
     match args[1].as_str() {
+        "encoder-verify" => {
+            voice::verify_encoder(root)?;
+            println!("ready");
+        }
+        "voice-list" => println!("{}", voice::list(root)?),
+        "voice-create" => {
+            ensure!(
+                args.len() == 6,
+                "用法: voice-create MODEL_DIR ENCODER_DIR MONO_24K_WAV NAME"
+            );
+            println!(
+                "{}",
+                serde_json::to_string(&voice::create(
+                    root,
+                    Path::new(&args[3]),
+                    Path::new(&args[4]),
+                    &args[5]
+                )?)?
+            );
+        }
         "verify" => {
             package::verify(root, true)?;
             println!("ready");
@@ -53,7 +78,15 @@ fn entry() -> Result<()> {
                 std::io::stdin().take(4097).read_to_end(&mut b)?;
                 ensure!(b.len() <= 4096, "控制消息过长");
                 let request: Request = serde_json::from_slice(&b)?;
-                quality::synthesize(root, &request.text)?
+                ensure!(
+                    args.len() == 3 || args.len() == 4,
+                    "speak 仅接受一个可选个人音色文件"
+                );
+                let condition = args
+                    .get(3)
+                    .map(|path| voice::load(Path::new(path)).map(|p| p.condition))
+                    .transpose()?;
+                quality::synthesize(root, &request.text, condition)?
             };
             ensure!(!pcm.is_empty() && pcm.len() <= 720000, "音频长度超限");
             let mut out = std::io::stdout().lock();

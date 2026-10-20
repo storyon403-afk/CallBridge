@@ -3,6 +3,8 @@
    模型权重与动态库先由 Rust 固定摘要校验；只使用应用包内 helper，不执行下载的脚本。 */
 #import "pocket_provider.h"
 #import "stream_converter.h"
+#import "background_audio.h"
+#import <AVFAudio/AVFAudio.h>
 #import <Foundation/Foundation.h>
 #include <math.h>
 static NSString *pluginRoot(void) {
@@ -13,6 +15,18 @@ static NSString *pluginRoot(void) {
     return [base stringByAppendingPathComponent:@"CallBridge/Plugins/pocket-tts-zh-4l-v1"];
 }
 NSString *CBPocketIdentifier(void) { return @"plugin.pocket-tts-zh-4l.default"; }
+static NSString *personalPrefix(void) { return @"plugin.pocket-tts-zh-4l.personal."; }
+BOOL CBIsPocketVoice(NSString *identifier) { return [identifier isEqual:CBPocketIdentifier()] || [identifier hasPrefix:personalPrefix()]; }
+static NSString *encoderRoot(void) { return [pluginRoot().stringByDeletingLastPathComponent stringByAppendingPathComponent:@"pocket-tts-zh-4l-voice-v1"]; }
+static NSString *voicesRoot(void) { return [pluginRoot().stringByDeletingLastPathComponent.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"Voices/pocket-v1"]; }
+static NSArray<NSDictionary *> *personalVoices;
+NSArray<NSDictionary *> *CBPocketPersonalVoices(void) { return personalVoices ?: @[]; }
+static NSString *profilePath(NSString *identifier) {
+    NSString *idString = [identifier hasPrefix:personalPrefix()] ? [identifier substringFromIndex:personalPrefix().length] : @"";
+    // NSUUID 验证整个 ID；绝不把外部输入当成可穿越目录的相对路径。
+    if (![[NSUUID alloc] initWithUUIDString:idString]) return nil;
+    return [voicesRoot() stringByAppendingPathComponent:[idString stringByAppendingPathExtension:@"json"]];
+}
 
 // 只在后台队列等待管道；两条管道并行排空且各有硬上限，避免错误日志堵住子进程。
 @interface CBPocketProcess : NSObject
@@ -72,6 +86,7 @@ NSString *CBPocketIdentifier(void) { return @"plugin.pocket-tts-zh-4l.default"; 
 
 @interface CBPocketTask : NSObject <CBVoiceTask>
 @property(nonatomic) BOOL example;
+@property(nonatomic, copy) NSString *profile;
 @property(atomic) BOOL cancelled;
 @property(nonatomic, strong) CBPocketProcess *process;
 @end
@@ -83,7 +98,8 @@ NSString *CBPocketIdentifier(void) { return @"plugin.pocket-tts-zh-4l.default"; 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
         @autoreleasepool {
             NSString *error = nil;
-            NSData *data = [self.process run:@[self.example ? @"example" : @"speak", pluginRoot()] input:self.example ? nil : request timeout:90 error:&error];
+            NSArray *arguments = self.profile ? @[@"speak",pluginRoot(),self.profile] : @[self.example ? @"example" : @"speak", pluginRoot()];
+            NSData *data = [self.process run:arguments input:self.example ? nil : request timeout:90 error:&error];
             NSArray<NSData *> *chunks = nil;
             if (data && data.length >= 12) {
                 const uint8_t *b = data.bytes;
@@ -111,6 +127,12 @@ NSString *CBPocketIdentifier(void) { return @"plugin.pocket-tts-zh-4l.default"; 
 }
 @end
 id<CBVoiceTask> CBMakePocketTask(BOOL example) { CBPocketTask *task=[CBPocketTask new]; task.example=example; return task; }
+id<CBVoiceTask> CBMakePersonalPocketTask(NSString *identifier) {
+    CBPocketTask *task=[CBPocketTask new]; task.profile=profilePath(identifier);
+    // 不合法 ID 也必须明确失败，不能悄悄退回默认参考音色。
+    if (!task.profile) task.profile=[voicesRoot() stringByAppendingPathComponent:@"invalid"];
+    return task;
+}
 
 // 网络只传固定资源 URL，不发送输入文字；传输中就执行字节上限并拒绝降级到 HTTP。
 @interface CBPocketDownloadDelegate : NSObject <NSURLSessionDownloadDelegate>
@@ -127,22 +149,45 @@ id<CBVoiceTask> CBMakePocketTask(BOOL example) { CBPocketTask *task=[CBPocketTas
 }
 @end
 static BOOL pocketReady=NO, pocketBusy=NO;
+// 校验独立于下载；主线程合并多个查询，界面不能把“尚未查完”解释成“未下载”。
+static BOOL pocketChecking=NO;
+static NSString *pocketProblem;
+static NSMutableArray *verificationCallbacks;
 static uint64_t verificationRevision=0;
 static NSURLSession *downloadSession;
 static CBPocketProcess *installProcess;
 static BOOL installCancelled=NO;
 BOOL CBPocketReady(void) { return pocketReady; }
 BOOL CBPocketBusy(void) { return pocketBusy; }
+BOOL CBPocketChecking(void) { return pocketChecking; }
+NSString *CBPocketProblem(void) { return pocketProblem; }
 void CBPocketRefresh(void (^completion)(NSString *)) {
     if (pocketBusy) { completion(nil); return; }
+    if (!verificationCallbacks) verificationCallbacks=[NSMutableArray array];
+    [verificationCallbacks addObject:[completion copy]];
+    if (pocketChecking) return;
+    pocketChecking=YES;
     uint64_t revision=++verificationRevision;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0), ^{
         NSString *error=nil; BOOL ready=NO;
+        NSArray *profiles=@[];
         if ([NSFileManager.defaultManager fileExistsAtPath:pluginRoot()]) {
             CBPocketProcess *process=[CBPocketProcess new];
             ready=[process run:@[@"verify",pluginRoot()] input:nil timeout:30 error:&error]!=nil;
+            if (ready) {
+                NSData *data=[process run:@[@"voice-list",voicesRoot()] input:nil timeout:30 error:&error];
+                NSDictionary *list=data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+                profiles=list[@"voices"] ?: @[];
+                if ([list[@"invalid"] unsignedIntegerValue]) error=@"部分个人音色文件损坏，已跳过；可重新导入原样本";
+            }
         }
-        dispatch_async(dispatch_get_main_queue(), ^{ if (revision==verificationRevision) pocketReady=ready; completion(error); });
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (revision==verificationRevision) { pocketReady=ready; pocketProblem=error; personalVoices=profiles; }
+            pocketChecking=NO;
+            NSArray *callbacks=[verificationCallbacks copy];
+            [verificationCallbacks removeAllObjects];
+            for (void (^callback)(NSString *) in callbacks) callback(error);
+        });
     });
 }
 void CBPocketCancelInstall(void) {
@@ -150,6 +195,7 @@ void CBPocketCancelInstall(void) {
     installCancelled=YES; [downloadSession invalidateAndCancel]; [installProcess cancel];
 }
 void CBPocketInstall(void (^progress)(NSString *), void (^completion)(NSString *)) {
+    if (pocketChecking) { completion(@"正在检查本地插件，请稍候"); return; }
     if (pocketBusy || pocketReady) { completion(@"插件已安装或正在处理"); return; }
     pocketBusy=YES; installCancelled=NO; ++verificationRevision;
     NSURLSessionConfiguration *config=NSURLSessionConfiguration.ephemeralSessionConfiguration;
@@ -162,6 +208,22 @@ void CBPocketInstall(void (^progress)(NSString *), void (^completion)(NSString *
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0), ^{
         @autoreleasepool {
             NSString *failure=nil; NSError *error=nil;
+            // 不能仅相信进程内缓存：首次启动或其他进程已安装时，先核验磁盘再考虑联网。
+            // 无效旧目录也不重复下载；finalize 本就拒绝覆盖，必须明确提示而非浪费流量。
+            if ([NSFileManager.defaultManager fileExistsAtPath:target]) {
+                BOOL ready=[process run:@[@"verify",target] input:nil timeout:30 error:&failure]!=nil;
+                [session finishTasksAndInvalidate];
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    pocketReady=ready; pocketProblem=ready ? nil : failure;
+                    pocketBusy=NO; downloadSession=nil; installProcess=nil;
+                    if (installCancelled) {
+                        CBPocketRefresh(^(NSString *verifyError) {
+                            completion(pocketReady ? nil : verifyError ?: @"下载已取消");
+                        });
+                    } else completion(ready ? nil : [@"已有插件未通过校验，未重复下载：" stringByAppendingString:failure ?: @"资源不完整"]);
+                });
+                return;
+            }
             NSData *catalogData=[process run:@[@"catalog"] input:nil timeout:10 error:&failure];
             NSDictionary *catalog=catalogData ? [NSJSONSerialization JSONObjectWithData:catalogData options:0 error:&error] : nil;
             if (!catalog || error || ![catalog[@"downloads"] isKindOfClass:NSArray.class]) failure=failure ?: @"插件下载清单无效";
@@ -202,4 +264,153 @@ void CBPocketInstall(void (^progress)(NSString *), void (^completion)(NSString *
             });
         }
     });
+}
+
+// 个人音色准备与现有下载/合成任务相互独立，取消先封锁发布，再终止子进程/网络。
+@interface CBPersonalOperation : NSObject <CBPocketOperation>
+@property(atomic) BOOL cancelled;
+@property(nonatomic, strong) CBPocketProcess *process;
+@property(nonatomic, strong) NSURLSession *session;
+@end
+@implementation CBPersonalOperation
+- (instancetype)init { if ((self=[super init])) _process=[CBPocketProcess new]; return self; }
+- (void)cancel { @synchronized(self) { self.cancelled=YES; [self.process cancel]; [self.session invalidateAndCancel]; } }
+@end
+static NSString *localEncoder(void) {
+    // 开发目录已有参考仓库时只读复用；发布包没有这个路径也能按需下载。
+    NSURL *project=NSBundle.mainBundle.bundleURL;
+    for (NSUInteger i=0;i<4;++i) project=project.URLByDeletingLastPathComponent;
+    NSString *local=[[project.URLByDeletingLastPathComponent URLByAppendingPathComponent:@"pocket-tts-zh-4l-onnx/mimi_encode.onnx"] path];
+#ifdef CB_POCKET_CHECK
+    const char *fixture=getenv("CB_POCKET_TEST_ENCODER");
+    if (fixture) local=[NSString stringWithUTF8String:fixture];
+#endif
+    return local;
+}
+void CBPocketPersonalStatus(void (^completion)(BOOL, BOOL, NSString *)) {
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0), ^{
+        NSString *error=nil;
+        BOOL exists=[NSFileManager.defaultManager fileExistsAtPath:encoderRoot()];
+        BOOL ready=exists && [[CBPocketProcess new] run:@[@"encoder-verify",encoderRoot()] input:nil timeout:30 error:&error]!=nil;
+        BOOL local=[NSFileManager.defaultManager fileExistsAtPath:localEncoder()];
+        dispatch_async(dispatch_get_main_queue(), ^{completion(ready,local,error);});
+    });
+}
+id<CBPocketOperation> CBPocketPreparePersonal(void (^completion)(NSString *)) {
+    CBPersonalOperation *operation=[CBPersonalOperation new];
+    NSURLSessionConfiguration *config=NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    config.timeoutIntervalForRequest=60; config.timeoutIntervalForResource=600;
+    operation.session=[NSURLSession sessionWithConfiguration:config delegate:[CBPocketDownloadDelegate new] delegateQueue:nil];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0), ^{
+        @autoreleasepool {
+            NSString *failure=nil; NSError *error=nil; NSFileManager *fm=NSFileManager.defaultManager;
+            NSString *target=encoderRoot();
+            NSString *stage=[target.stringByDeletingLastPathComponent stringByAppendingPathComponent:[@".pocket-voice-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+            if ([fm fileExistsAtPath:target]) {
+                // 完整包复用，损坏包报错；不能自动覆盖用户已有文件或再次花费流量。
+                [operation.process run:@[@"encoder-verify",target] input:nil timeout:30 error:&failure];
+            } else {
+                NSData *data=[operation.process run:@[@"encoder-catalog"] input:nil timeout:10 error:&failure];
+                NSDictionary *asset=data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL] : nil;
+                if (!asset && !failure) failure=@"编码器清单无效";
+                if (!failure && ![fm createDirectoryAtPath:stage withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&error]) failure=error.localizedDescription;
+                NSString *local=localEncoder();
+                if (!failure && !operation.cancelled && [fm fileExistsAtPath:local]) {
+                    if (![fm copyItemAtPath:local toPath:[stage stringByAppendingPathComponent:@"mimi_encode.onnx"] error:&error]) failure=error.localizedDescription;
+                } else if (!failure && !operation.cancelled) {
+                    dispatch_semaphore_t semaphore=dispatch_semaphore_create(0);
+                    __block NSString *networkError=nil;
+                    NSURLSessionDownloadTask *download=[operation.session downloadTaskWithURL:[NSURL URLWithString:asset[@"url"]] completionHandler:^(NSURL *location, NSURLResponse *response, NSError *downloadError) {
+                        NSError *moveError=nil; NSNumber *size=nil;
+                        [location getResourceValue:&size forKey:NSURLFileSizeKey error:NULL];
+                        if (downloadError || !location || ((NSHTTPURLResponse *)response).statusCode!=200 || size.unsignedLongLongValue!=[asset[@"bytes"] unsignedLongLongValue]) networkError=downloadError.localizedDescription ?: @"编码器下载失败或大小不符";
+                        else if (![fm moveItemAtURL:location toURL:[NSURL fileURLWithPath:[stage stringByAppendingPathComponent:@"mimi_encode.onnx"]] error:&moveError]) networkError=moveError.localizedDescription;
+                        dispatch_semaphore_signal(semaphore);
+                    }];
+                    [download resume]; dispatch_semaphore_wait(semaphore,DISPATCH_TIME_FOREVER); failure=networkError;
+                }
+                if (!failure && !operation.cancelled) [operation.process run:@[@"encoder-verify",stage] input:nil timeout:30 error:&failure];
+                @synchronized(operation) {
+                    if (!failure && !operation.cancelled && ![fm moveItemAtPath:stage toPath:target error:&error]) failure=error.localizedDescription;
+                }
+                [fm removeItemAtPath:stage error:NULL]; // 仅清理本次 UUID 临时目录。
+            }
+            [operation.session finishTasksAndInvalidate];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                CBPocketPersonalStatus(^(BOOL ready, BOOL local, NSString *verifyError) { (void)local; completion(ready ? nil : failure ?: verifyError ?: @"已取消准备"); });
+            });
+        }
+    });
+    return operation;
+}
+
+// 复用只读 WAV 校验/解码，再用 Apple 转换器一次性转换成 24 kHz；不打开音频设备。
+// 缓冲上限 15 秒，原始文件不进入个人音色目录；系统临时文件在推理结束/取消后清理。
+static BOOL personalSample(NSURL *source, NSURL *destination, NSString **failure) {
+    NSData *pcm=CBLoadBackground(source,failure);
+    if (!pcm) return NO;
+    NSUInteger frames=pcm.length/sizeof(float);
+    if (frames<3*48000 || frames>15*48000) { *failure=@"请选择 3–15 秒的单人语音 WAV，建议 3–10 秒、无音乐与混响"; return NO; }
+    AVAudioFormat *inputFormat=[[AVAudioFormat alloc] initStandardFormatWithSampleRate:48000 channels:1];
+    AVAudioFormat *outputFormat=[[AVAudioFormat alloc] initStandardFormatWithSampleRate:24000 channels:1];
+    AVAudioPCMBuffer *input=[[AVAudioPCMBuffer alloc] initWithPCMFormat:inputFormat frameCapacity:(AVAudioFrameCount)frames];
+    input.frameLength=(AVAudioFrameCount)frames; memcpy(input.floatChannelData[0],pcm.bytes,pcm.length);
+    AVAudioConverter *converter=[[AVAudioConverter alloc] initFromFormat:inputFormat toFormat:outputFormat];
+    converter.sampleRateConverterQuality=AVAudioQualityMax;
+    AVAudioPCMBuffer *output=[[AVAudioPCMBuffer alloc] initWithPCMFormat:outputFormat frameCapacity:4096];
+    __block BOOL supplied=NO; NSError *error=nil; BOOL ended=NO;
+    NSMutableData *converted=[NSMutableData data];
+    for (NSUInteger attempt=0; converter && attempt<128; ++attempt) {
+        AVAudioConverterOutputStatus status=[converter convertToBuffer:output error:&error withInputFromBlock:^AVAudioBuffer *(AVAudioPacketCount requested, AVAudioConverterInputStatus *inputStatus) {
+            (void)requested;
+            if (supplied) { *inputStatus=AVAudioConverterInputStatus_EndOfStream; return nil; }
+            supplied=YES; *inputStatus=AVAudioConverterInputStatus_HaveData; return input;
+        }];
+        if (status==AVAudioConverterOutputStatus_Error || error || converted.length+output.frameLength*4>15*24000*4) break;
+        [converted appendBytes:output.floatChannelData[0] length:output.frameLength*4];
+        if (status==AVAudioConverterOutputStatus_EndOfStream) { ended=YES; break; }
+    }
+    if (!ended || !converted.length || fabs((double)(converted.length/4)-frames/2.0)>2) { *failure=error.localizedDescription ?: @"样本采样率转换不完整"; return NO; }
+    AVAudioPCMBuffer *complete=[[AVAudioPCMBuffer alloc] initWithPCMFormat:outputFormat frameCapacity:(AVAudioFrameCount)(converted.length/4)];
+    complete.frameLength=complete.frameCapacity;
+    memcpy(complete.floatChannelData[0],converted.bytes,converted.length);
+    AVAudioFile *file=[[AVAudioFile alloc] initForWriting:destination settings:outputFormat.settings error:&error];
+    if (!file || ![file writeFromBuffer:complete error:&error]) { *failure=error.localizedDescription ?: @"无法准备样本"; return NO; }
+    return YES;
+}
+id<CBPocketOperation> CBPocketCreatePersonal(NSURL *sample, NSString *name, void (^completion)(NSString *, NSString *)) {
+    CBPersonalOperation *operation=[CBPersonalOperation new];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
+        @autoreleasepool {
+            NSString *failure=nil; NSError *error=nil; NSString *identifier=nil;
+            NSFileManager *fm=NSFileManager.defaultManager;
+            NSString *temporary=[NSTemporaryDirectory() stringByAppendingPathComponent:[@"callbridge-voice-" stringByAppendingString:NSUUID.UUID.UUIDString]];
+            if (![fm createDirectoryAtPath:temporary withIntermediateDirectories:NO attributes:@{NSFilePosixPermissions:@0700} error:&error]) failure=error.localizedDescription;
+            NSURL *wav=[NSURL fileURLWithPath:[temporary stringByAppendingPathComponent:@"sample.wav"]];
+            NSData *profile=nil;
+            if (!failure && !operation.cancelled && personalSample(sample,wav,&failure)) {
+                profile=[operation.process run:@[@"voice-create",pluginRoot(),encoderRoot(),wav.path,name] input:nil timeout:90 error:&failure];
+            }
+            if (profile && !failure) {
+                NSData *listing=[operation.process run:@[@"voice-list",voicesRoot()] input:nil timeout:30 error:&failure];
+                NSDictionary *list=listing ? [NSJSONSerialization JSONObjectWithData:listing options:0 error:NULL] : nil;
+                if ([list[@"voices"] count]>=64) failure=@"最多保存 64 个个人音色";
+            }
+            @synchronized(operation) {
+                if (profile && !failure && !operation.cancelled) {
+                    if (![fm createDirectoryAtPath:voicesRoot() withIntermediateDirectories:YES attributes:@{NSFilePosixPermissions:@0700} error:&error]) failure=error.localizedDescription;
+                    NSString *idString=NSUUID.UUID.UUIDString;
+                    NSString *path=[voicesRoot() stringByAppendingPathComponent:[idString stringByAppendingPathExtension:@"json"]];
+                    if (!failure && ![profile writeToFile:path options:NSDataWritingAtomic error:&error]) failure=error.localizedDescription;
+                    if (!failure) { [fm setAttributes:@{NSFilePosixPermissions:@0600} ofItemAtPath:path error:NULL]; identifier=[personalPrefix() stringByAppendingString:idString]; }
+                }
+            }
+            [fm removeItemAtPath:temporary error:NULL];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                // 提交后取消不能假装文件未生成；返回真实 ID，并由调用者决定是否选择。
+                CBPocketRefresh(^(NSString *refreshError) { completion(identifier,identifier ? nil : failure ?: refreshError ?: @"已取消创建"); });
+            });
+        }
+    });
+    return operation;
 }

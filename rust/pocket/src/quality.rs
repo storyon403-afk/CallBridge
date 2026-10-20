@@ -37,11 +37,15 @@ fn measure(p: &[f32]) -> (f64, f64) {
     }
     (voiced, longest as f64 * 0.05)
 }
-pub fn synthesize(root: &std::path::Path, input: &str) -> Result<Vec<f32>> {
+pub fn synthesize(
+    root: &std::path::Path,
+    input: &str,
+    condition: Option<Vec<f32>>,
+) -> Result<Vec<f32>> {
     let frontend = Frontend::open(root)?;
     let normalized = frontend.normalize(input)?;
     let pieces = frontend.pieces(&normalized)?;
-    let mut model = Model::open(root, None)?;
+    let mut model = Model::open(root, condition)?;
     let mut full = vec![];
     for piece in pieces {
         let (s, tail) = prepare(&piece);

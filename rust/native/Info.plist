@@ -13,8 +13,8 @@
     <key>CFBundleName</key><string>CallBridge</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <!-- 对外版本号与内部构建号分开；不能把构建号理解成系统版本。 -->
-    <key>CFBundleShortVersionString</key><string>0.6.0</string>
-    <key>CFBundleVersion</key><string>15</string>
+    <key>CFBundleShortVersionString</key><string>0.7.0</string>
+    <key>CFBundleVersion</key><string>18</string>
     <key>CFBundleURLTypes</key>
     <array><dict>
         <key>CFBundleURLName</key><string>dev.callbridge.text</string>

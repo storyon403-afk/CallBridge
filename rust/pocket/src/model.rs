@@ -51,7 +51,7 @@ fn run(session: &mut Session, feed: Feed) -> Result<HashMap<String, Array>> {
     }
     Ok(result)
 }
-fn session(root: &Path, file: &str, threads: usize) -> Result<Session> {
+pub(crate) fn session(root: &Path, file: &str, threads: usize) -> Result<Session> {
     Ok(Session::builder()?
         .with_execution_providers([ort::ep::CPU::default().with_arena_allocator(true).build()])
         .map_err(|e| anyhow::anyhow!(e.to_string()))?
@@ -61,7 +61,7 @@ fn session(root: &Path, file: &str, threads: usize) -> Result<Session> {
         .map_err(|e| anyhow::anyhow!(e.to_string()))?
         .commit_from_file(root.join(file))?)
 }
-fn npy(root: &Path, name: &str) -> Result<Vec<f32>> {
+pub(crate) fn npy(root: &Path, name: &str) -> Result<Vec<f32>> {
     let mut archive = zip::ZipArchive::new(File::open(root.join("ort_glue.npz"))?)?;
     let mut data = vec![];
     archive
@@ -163,7 +163,7 @@ pub struct Model {
     std: Vec<f32>,
 }
 impl Model {
-    pub fn open(root: &Path, condition: Option<&Path>) -> Result<Self> {
+    pub fn open(root: &Path, condition: Option<Vec<f32>>) -> Result<Self> {
         // 仅加载已固定/校验的运行库；禁止自定义算子库和 GPU 后端自动选择。
         ort::init_from(root.join("libonnxruntime.dylib"))?
             .with_telemetry(false)
@@ -181,8 +181,8 @@ impl Model {
             model.mean.len() == 32 && model.std.len() == 32,
             "latent 统计维数错误"
         );
-        let condition = if let Some(path) = condition {
-            floats(&std::fs::read(path)?)?
+        let condition = if let Some(condition) = condition {
+            condition
         } else {
             floats(include_bytes!("../assets/default-condition.f32"))?
         };

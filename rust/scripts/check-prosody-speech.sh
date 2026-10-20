@@ -24,9 +24,9 @@ mkdir -p build/prosody-check
 cargo build --offline --release
 xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
     -isysroot "$sdk_root" -mmacosx-version-min=26.0 \
-    native/prosody_speech_check.m native/prosody_corpus.m native/plan_task.m native/voice_provider.m native/pocket_provider.m \
+    native/prosody_speech_check.m native/prosody_corpus.m native/plan_task.m native/voice_provider.m native/pocket_provider.m native/background_audio.m \
     native/speech_job.m native/stream_converter.m target/release/libcallbridge_abi_probe.a \
-    -framework Foundation -framework AVFAudio -framework AVFoundation \
+    -framework Foundation -framework AVFAudio -framework AVFoundation -framework AudioToolbox \
     -Wl,-dead_strip -o build/prosody-check/prosody-speech-check
 if [ "$build_only" -eq 1 ]; then
     printf '%s\n' "$project_root/build/prosody-check/prosody-speech-check"

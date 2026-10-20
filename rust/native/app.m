@@ -19,6 +19,7 @@
 #import "stream_converter.h"
 #import "preview_devices.h"
 #import "pocket_provider.h"
+#import "personal_voice.h"
 #import "microphone.h"
 #include "app_core.h"
 #import "theme.h"
@@ -26,11 +27,6 @@
 #import "settings.h"
 #include <CoreAudio/CoreAudio.h>
 #include <stdio.h>
-
-// 面板和菜单使用同一组模式，避免名称或索引漂移到错误的 provider 参数。
-static NSArray<NSString *> *prosody_titles(void) {
-    return @[@"原样朗读", @"自动断句", @"中性", @"温和", @"轻快", @"认真"];
-}
 
 // 把底层数字错误转成可读提示；未单独映射的 OSStatus 仍显示原值，便于定位。
 static NSString *sender_error(int32_t status) {
@@ -393,7 +389,6 @@ static int virtual_route_report(void) {
 @property(nonatomic, strong) NSTextView *editor;
 @property(nonatomic, strong) NSTextField *status;
 @property(nonatomic, strong) NSPopUpButton *voices;
-@property(nonatomic, strong) NSPopUpButton *expressions;
 @property(nonatomic, strong) NSButton *sendButton;
 @property(nonatomic, strong) NSButton *stopButton;
 @property(nonatomic, strong) NSButton *armButton;
@@ -403,6 +398,9 @@ static int virtual_route_report(void) {
 @property(nonatomic, strong) NSPopUpButton *sendDevices;
 @property(nonatomic, strong) NSButton *previewButton;
 @property(nonatomic, strong) NSButton *pocketButton;
+@property(nonatomic, strong) NSButton *pocketUseButton;
+@property(nonatomic, strong) NSTextField *pocketStatus;
+@property(nonatomic, strong) CBPersonalVoiceController *personalController;
 // 只记录本次用户命令的输出目的；播放状态仍只由 Rust session 管理。
 @property(nonatomic, copy) NSString *previewUID;
 @property(nonatomic, strong) NSSlider *volume;
@@ -411,7 +409,6 @@ static int virtual_route_report(void) {
 @property(nonatomic, strong) id<CBVoiceTask> job;
 @property(nonatomic, strong) CBVoiceCatalog *voiceCatalog;
 // 导入是文件操作，不是第二套播放状态；只用它阻止导入期间发起新命令。
-@property(nonatomic) BOOL importingVoice;
 @property(nonatomic) BOOL loadingBackground;
 @property(nonatomic, copy) NSData *backgroundPCM;
 @property(nonatomic) BOOL backgroundEnabled;
@@ -457,7 +454,6 @@ static int virtual_route_report(void) {
 @property(nonatomic) BOOL attemptedBackgroundStartInSmoke;
 @property(nonatomic) uint32_t lastPosition;
 @property(nonatomic) double lastAdvance;
-@property(nonatomic) uint32_t prosodyMode;
 // 偏好仅记录选择，不代替 Rust 会话状态；所有磁盘操作在同一后台队列按序完成。
 @property(nonatomic, copy) NSDictionary *settings;
 @property(nonatomic, strong) dispatch_queue_t settingsQueue;
@@ -509,7 +505,6 @@ static int virtual_route_report(void) {
     [self scheduleWindowSave];
 }
 - (void)applySettings {
-    self.prosodyMode = [self.settings[@"prosody_mode"] unsignedIntValue];
     self.backgroundGain = [self.settings[@"background_gain"] floatValue];
     self.environmentGain = [self.settings[@"environment_gain"] floatValue];
     self.backgroundLoop = [self.settings[@"background_loop"] boolValue];
@@ -549,13 +544,7 @@ static int virtual_route_report(void) {
     dispatch_async(self.settingsQueue, ^{
         NSString *warning = nil;
         NSDictionary *settings = CBReadSettings(CBSettingsURL(), &warning);
-        NSMutableArray<CBVoiceDescriptor *> *presets = [NSMutableArray array];
-        for (NSString *path in settings[@"voice_preset_paths"]) {
-            NSError *error = nil;
-            CBVoiceDescriptor *voice = CBReadVoicePreset([NSURL fileURLWithPath:path], &error);
-            if (voice != nil) [presets addObject:voice];
-            else warning = @"部分音色预设未能恢复；原引用已保留，请检查文件和系统音色。";
-        }
+        // 兼容保留旧设置字段，但不再读取预设文件或恢复已退役的表达方案。
         NSString *backgroundPath = settings[@"background_path"];
         NSData *pcm = nil;
         if (backgroundPath.length > 0) {
@@ -567,9 +556,6 @@ static int virtual_route_report(void) {
             if (self.terminating) return;
             self.settings = settings;
             NSString *restoreWarning = warning;
-            for (CBVoiceDescriptor *voice in presets)
-                if (![self.voiceCatalog addPreset:voice error:NULL])
-                    restoreWarning = @"部分音色预设注册失败；原引用已保留，请检查是否有重复 ID。";
             self.backgroundPCM = pcm;
             if (backgroundPath.length > 0) {
                 self.backgroundInfo.toolTip = backgroundPath.lastPathComponent;
@@ -622,6 +608,19 @@ static int virtual_route_report(void) {
 - (void)showAudio:(id)sender {
     (void)sender;
     [self.audioWindow makeKeyAndOrderFront:nil];
+    [self refreshPocket];
+}
+- (void)refreshPocket {
+    if (self.uiSmoke || CBPocketBusy()) return;
+    __weak CallBridgeApp *weakSelf=self;
+    CBPocketRefresh(^(NSString *error) {
+        CallBridgeApp *controller=weakSelf;
+        if (!controller || controller.terminating) return;
+        [controller refresh:nil];
+        [controller updateControls];
+        if (error) controller.status.stringValue=[@"Pocket 校验失败：" stringByAppendingString:error];
+    });
+    [self updateControls];
 }
 - (void)showMix:(id)sender {
     (void)sender;
@@ -639,10 +638,35 @@ static int virtual_route_report(void) {
     title.font = CBHeadingFont();
     NSTextField *message = [NSTextField wrappingLabelWithString:[sender.title isEqual:@"画面处理"]
         ? @"虚拟形象与视频背景的预留入口。\n当前不会开启摄像头。"
-        : ([sender.title isEqual:@"个人音色模拟"] ? @"Pocket 插件提供固定参考音色。\n个人录音导入与音色克隆面板尚未接入。" : @"留给下一种可能。\n当前没有可启用的功能。")];
+        : @"留给下一种可能。\n当前没有可启用的功能。"];
     message.textColor = CBSecondaryColor();
     CBInstallColumn(self.placeholderWindow, CBColumn(@[title, message]), NO);
     [self.placeholderWindow makeKeyAndOrderFront:nil];
+}
+- (void)showPersonal:(id)sender {
+    (void)sender;
+    if (!self.personalController) {
+        self.personalController=[CBPersonalVoiceController new];
+        __weak CallBridgeApp *weakSelf=self;
+        self.personalController.canChange=^BOOL {
+            CallBridgeApp *controller=weakSelf;
+            BOOL allowed=controller && controller.settingsReady && controller->_session.state==0 && controller->_sender==NULL
+                && !controller.loadingBackground && !controller.requestingMicrophone && !controller.requestingBackground
+                && !controller.cleanupFailed && !controller.terminating;
+            if (!allowed) controller.status.stringValue=@"请先停止当前音频操作，再准备个人音色";
+            return allowed;
+        };
+        self.personalController.stateChanged=^{ [weakSelf updateControls]; };
+        self.personalController.created=^(NSString *identifier) {
+            CallBridgeApp *controller=weakSelf;
+            if (!controller || controller.terminating) return;
+            [controller rememberSetting:@"voice_id" value:identifier];
+            [controller refresh:nil];
+            [controller updateControls];
+            controller.status.stringValue=@"个人音色已选择 · 可试听或输入文字发送";
+        };
+    }
+    [self.personalController present];
 }
 - (NSTextField *)statusMirror {
     NSTextField *label = [NSTextField wrappingLabelWithString:@""];
@@ -683,7 +707,7 @@ static int virtual_route_report(void) {
     // 启动恢复期间不接受会被旧快照覆盖的音量/置顶修改；恢复完成后再开放。
     self.volume.enabled = self.settingsReady || self.uiSmoke;
     self.pinButton.enabled = self.settingsReady || self.uiSmoke;
-    BOOL idle = _session.state == 0 && !self.importingVoice && !self.loadingBackground
+    BOOL idle = _session.state == 0 && !self.loadingBackground && !self.personalController.busy
         && !self.requestingMicrophone && !self.requestingBackground;
     self.sendButton.enabled = idle && self.deviceAvailable && !self.cleanupFailed
         && self.voices.selectedItem.representedObject != nil && self.armButton.state == NSControlStateValueOn
@@ -691,17 +715,24 @@ static int virtual_route_report(void) {
     self.stopButton.enabled = _session.state != 0 || _sender != NULL || self.requestingMicrophone || self.requestingBackground;
     self.refreshButton.enabled = idle && _sender == NULL && !self.cleanupFailed;
     self.voices.enabled = idle;
-    BOOL pocket = [((CBVoiceDescriptor *)self.voices.selectedItem.representedObject).identifier isEqual:CBPocketIdentifier()];
-    self.expressions.enabled = idle && !self.cleanupFailed && !pocket;
-    self.pocketButton.title = CBPocketBusy() ? @"取消下载" : CBPocketReady() ? @"使用 Pocket" : @"下载 Pocket · 170 MB";
-    self.pocketButton.enabled = CBPocketBusy() || (idle && _sender == NULL && !self.cleanupFailed);
-    self.previewButton.title = pocket ? @"试听示例音频" : @"试听音色";
-    [self.expressions selectItemWithTag:self.prosodyMode];
+    NSString *voiceIdentifier=((CBVoiceDescriptor *)self.voices.selectedItem.representedObject).identifier;
+    BOOL pocket = CBIsPocketVoice(voiceIdentifier);
+    BOOL checking=CBPocketChecking(), busy=CBPocketBusy(), ready=CBPocketReady();
+    self.pocketStatus.stringValue = checking ? @"Pocket 中文 · 检查中"
+        : busy ? @"Pocket 中文 · 下载中"
+        : ready ? (pocket ? @"Pocket 中文 · 使用中" : @"Pocket 中文 · 已下载")
+        : CBPocketProblem() ? @"Pocket 中文 · 需检查" : @"Pocket 中文 · 未下载";
+    self.pocketStatus.toolTip=CBPocketProblem() ?: @"本地中文引擎；选择后使用模型原生韵律。";
+    self.pocketButton.title = checking ? @"检查中…" : busy ? @"取消下载" : ready ? @"已下载" : @"下载 · 161 MB";
+    self.pocketButton.enabled = !checking && (busy || (!ready && !CBPocketProblem() && idle && _sender == NULL && !self.cleanupFailed));
+    self.pocketUseButton.title = pocket ? @"使用中" : @"使用 Pocket";
+    self.pocketUseButton.enabled = ready && !checking && !busy && !pocket && idle && _sender == NULL && !self.cleanupFailed;
+    self.previewButton.title = [voiceIdentifier isEqual:CBPocketIdentifier()] ? @"试听示例音频" : @"试听音色";
     self.previewDevices.enabled = idle && _sender == NULL;
     self.sendDevices.enabled = idle && _sender == NULL && !self.cleanupFailed;
     self.previewButton.enabled = idle && _sender == NULL && !self.environmentEnabled && !self.cleanupFailed && self.voices.selectedItem.representedObject != nil
         && self.previewDevices.selectedItem.representedObject != nil;
-    self.armButton.enabled = !self.importingVoice && !self.loadingBackground && !self.requestingMicrophone
+    self.armButton.enabled = !self.loadingBackground && !self.requestingMicrophone
         && !self.requestingBackground && (idle || self.previewUID == nil);
     NSString *mix = self.environmentEnabled ? @"（含真实环境，持续）"
         : (self.backgroundEnabled ? @"（含背景音，持续）" : @"");
@@ -710,8 +741,8 @@ static int virtual_route_report(void) {
     // 面板与菜单只展示同一份素材/模式，不另建播放状态；所有入口共用下面的动作方法。
     BOOL canConfigure = idle && _sender == NULL && !self.cleanupFailed;
     self.microphoneDevices.enabled = canConfigure && !self.environmentEnabled;
-    self.environmentToggle.enabled = !self.cleanupFailed && !self.requestingMicrophone && !self.requestingBackground && !self.closingEnvironment
-        && !self.importingVoice && !self.loadingBackground && self.previewUID == nil
+    self.environmentToggle.enabled = !self.personalController.busy && !self.cleanupFailed && !self.requestingMicrophone && !self.requestingBackground && !self.closingEnvironment
+        && !self.loadingBackground && self.previewUID == nil
         && (self.environmentEnabled || (self.deviceAvailable && self.microphoneDevices.selectedItem.representedObject != nil));
     self.environmentToggle.state = self.environmentEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     self.environmentToggle.title = self.closingEnvironment ? @"环境·关闭中" : (_microphone != NULL ? @"环境·采集中" : @"混入环境");
@@ -721,17 +752,17 @@ static int virtual_route_report(void) {
     self.backgroundImportButton.enabled = canConfigure;
     self.backgroundClearButton.enabled = canConfigure && (self.backgroundPCM != nil || [self.settings[@"background_path"] length] > 0);
     // 素材在创建 sender 时已预装，启停仅发原子暂停命令，朗读或开麦期间也可独立控制。
-    self.backgroundToggleButton.enabled = self.backgroundPCM != nil && !self.cleanupFailed
-        && !self.importingVoice && !self.loadingBackground && !self.requestingMicrophone
+    self.backgroundToggleButton.enabled = !self.personalController.busy && self.backgroundPCM != nil && !self.cleanupFailed
+        && !self.loadingBackground && !self.requestingMicrophone
         && !self.requestingBackground && self.previewUID == nil && (self.backgroundEnabled || self.deviceAvailable);
     self.backgroundToggleButton.title = self.backgroundEnabled ? @"背景·已开启" : @"播放背景";
     self.backgroundLoopButton.enabled = canConfigure && self.backgroundPCM != nil;
     self.backgroundPauseButton.enabled = self.backgroundEnabled && self.backgroundPCM != nil
-        && !self.importingVoice && !self.loadingBackground && !self.cleanupFailed;
+        && !self.loadingBackground && !self.cleanupFailed;
     self.backgroundPauseButton.title = self.backgroundPaused ? @"继续背景" : @"暂停背景";
     self.backgroundToggleButton.state = self.backgroundEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     self.backgroundLoopButton.state = self.backgroundLoop ? NSControlStateValueOn : NSControlStateValueOff;
-    self.backgroundVolume.enabled = self.backgroundEnabled && !self.importingVoice && !self.loadingBackground && !self.cleanupFailed;
+    self.backgroundVolume.enabled = self.backgroundEnabled && !self.loadingBackground && !self.cleanupFailed;
     self.backgroundVolume.doubleValue = self.backgroundGain;
     self.backgroundVolumeLabel.stringValue = [NSString stringWithFormat:@"背景 %.0f%%", self.backgroundGain * 100];
     self.backgroundFileLabel.stringValue = self.loadingBackground ? @"正在导入…"
@@ -745,8 +776,8 @@ static int virtual_route_report(void) {
     self.activityLabel.toolTip = self.routeLabel.stringValue;
 }
 - (void)refresh:(id)sender {
-    (void)sender;
-    if (_session.state != 0 || _sender != NULL || self.importingVoice || self.loadingBackground
+    if (sender == self.refreshButton) [self refreshPocket];
+    if (_session.state != 0 || _sender != NULL || self.loadingBackground
         || self.requestingMicrophone || self.requestingBackground) return;
     CBVoiceDescriptor *previousVoice = self.voices.selectedItem.representedObject;
     NSString *savedVoice = self.settings[@"voice_id"];
@@ -756,7 +787,7 @@ static int virtual_route_report(void) {
     for (CBVoiceDescriptor *voice in [self.voiceCatalog voices]) {
         [self.voices addItemWithTitle:[NSString stringWithFormat:@"%@%@ · %@ · %@", voice.preset ? @"预设 / " : @"", voice.name, voice.gender, voice.language]];
         self.voices.lastItem.representedObject = voice;
-        self.voices.lastItem.toolTip = [voice.identifier isEqual:CBPocketIdentifier()] ? @"本地 Pocket 中文模型 · 使用模型原生韵律；示例试听不读取草稿" : [NSString stringWithFormat:@"%@\n语速 %.2f · 音高 %.2f", voice.identifier, voice.rate, voice.pitch];
+        self.voices.lastItem.toolTip = CBIsPocketVoice(voice.identifier) ? @"本地 Pocket 中文模型 · 使用模型原生韵律；个人音色试听使用固定短句" : [NSString stringWithFormat:@"%@\n语速 %.2f · 音高 %.2f", voice.identifier, voice.rate, voice.pitch];
         male |= [voice.gender isEqual:@"男声"];
         female |= [voice.gender isEqual:@"女声"];
         if ([selected isEqual:voice.identifier]) [self.voices selectItem:self.voices.lastItem];
@@ -765,7 +796,7 @@ static int virtual_route_report(void) {
         male ? @"可用" : @"缺失", female ? @"可用" : @"缺失"];
     CBVoiceDescriptor *selectedVoice = self.voices.selectedItem.representedObject;
     if (savedVoice.length > 0 && ![selectedVoice.identifier isEqual:savedVoice]) {
-        [self.voices addItemWithTitle:@"上次音色不可用，请恢复预设或重新选择"];
+        [self.voices addItemWithTitle:@"上次音色不可用，请重新选择可用音色"];
         self.voices.lastItem.enabled = NO;
         [self.voices selectItem:self.voices.lastItem];
     }
@@ -775,7 +806,7 @@ static int virtual_route_report(void) {
     self.status.stringValue = status == 0 ? @"待发送 · 不采集真实麦克风"
                                           : sender_error(status);
     if (self.voices.numberOfItems == 0) self.status.stringValue = @"没有可用中英语音，请安装系统语音后刷新。";
-    else if (self.voices.selectedItem.representedObject == nil) self.status.stringValue = @"上次音色不可用，已保留选择；请恢复预设或重新选择。";
+    else if (self.voices.selectedItem.representedObject == nil) self.status.stringValue = @"上次音色不可用，已保留选择；请重新选择可用音色。";
     NSString *previousUID = [self.settings[@"preview_uid"] length] > 0
         ? self.settings[@"preview_uid"] : self.previewDevices.selectedItem.representedObject;
     [self.previewDevices removeAllItems];
@@ -936,7 +967,7 @@ static int virtual_route_report(void) {
 }
 - (void)sendDeviceChanged:(id)sender {
     (void)sender;
-    if (_session.state != 0 || _sender != NULL || self.importingVoice || self.loadingBackground || self.cleanupFailed) return;
+    if (_session.state != 0 || _sender != NULL || self.loadingBackground || self.cleanupFailed) return;
     // 旧勾选只授权旧目标：更换线缆后必须重新确认，不能把下一句意外送到另一条通话。
     self.armButton.state = NSControlStateValueOff;
     NSString *uid = self.sendDevices.selectedItem.representedObject;
@@ -950,22 +981,26 @@ static int virtual_route_report(void) {
     (void)sender;
     if (CBPocketBusy()) { CBPocketCancelInstall(); self.status.stringValue = @"正在取消下载…"; return; }
     if (!self.pocketButton.enabled) return;
-    if (CBPocketReady()) {
-        [self refresh:nil];
-        for (NSMenuItem *item in self.voices.itemArray) {
-            if ([((CBVoiceDescriptor *)item.representedObject).identifier isEqual:CBPocketIdentifier()]) {
-                [self.voices selectItem:item]; [self voiceChanged:nil];
-                self.status.stringValue = @"Pocket 已选择 · 可点击“试听示例音频”，或输入文字发送"; break;
-            }
-        }
-        [self updateControls]; return;
-    }
     __weak CallBridgeApp *weakSelf = self;
     CBPocketInstall(^(NSString *message) { weakSelf.status.stringValue = message; }, ^(NSString *error) {
         CallBridgeApp *controller = weakSelf; if (!controller || controller.terminating) return;
         [controller refresh:nil]; [controller updateControls];
-        controller.status.stringValue = error ?: @"Pocket 已安装 · 点击“使用 Pocket”选择音色，然后可试听示例";
+        controller.status.stringValue = error ?: @"Pocket 已下载 · 点击“使用 Pocket”启用，然后可试听示例";
     });
+    [self updateControls];
+}
+- (void)usePocket:(id)sender {
+    (void)sender;
+    if (!self.pocketUseButton.enabled || !CBPocketReady()) return;
+    [self refresh:nil];
+    for (NSMenuItem *item in self.voices.itemArray) {
+        if ([((CBVoiceDescriptor *)item.representedObject).identifier isEqual:CBPocketIdentifier()]) {
+            // 与音色菜单共用选择和保存逻辑；下载完成本身不会启用或播放。
+            [self.voices selectItem:item]; [self voiceChanged:nil];
+            self.status.stringValue = @"Pocket 已选择 · 可点击“试听示例音频”，或输入文字发送";
+            break;
+        }
+    }
     [self updateControls];
 }
 - (void)previewDeviceChanged:(id)sender {
@@ -1062,7 +1097,7 @@ static int virtual_route_report(void) {
     [self beginSpeech:self.editor.string previewUID:nil];
 }
 - (void)beginSpeech:(NSString *)phrase previewUID:(NSString *)previewUID {
-    if (_session.state != 0 || self.importingVoice || self.loadingBackground || self.cleanupFailed
+    if (_session.state != 0 || self.loadingBackground || self.cleanupFailed
         || self.requestingMicrophone || self.requestingBackground) return;
     // 提交时冻结 UID；异步合成完成后不能重新读取菜单，防止一条语音中途换目的地。
     NSString *sendUID = [self.sendDevices.selectedItem.representedObject copy];
@@ -1073,7 +1108,8 @@ static int virtual_route_report(void) {
     // 句内素材/循环模式不可变；音量另走原子更新。导入文件之后不再按路径访问。
     NSData *background = self.backgroundEnabled ? self.backgroundPCM : nil;
     BOOL looping = self.backgroundLoop;
-    // 冻结当前音色和参数；任务创建时重新检查系统音色，失效时不切到另一种声音。
+    // 当前产品仅使用系统原生 TTS 或 Pocket；旧表达设置不再参与任务创建。
+    // 冻结当前音色；任务创建时重新检查系统音色，失效时不切到另一种声音。
     NSError *voiceError = nil;
     BOOL pocket = [((CBVoiceDescriptor *)self.voices.selectedItem.representedObject).identifier isEqual:CBPocketIdentifier()];
     id<CBVoiceTask> task = pocket && previewUID != nil ? CBMakePocketTask(YES) : CBMakeVoiceTask(self.voices.selectedItem.representedObject, &voiceError);
@@ -1085,11 +1121,6 @@ static int virtual_route_report(void) {
     }
     // 保存本次任务编号。不是完成时再读“最新编号”，否则旧结果可能冒充新任务。
     uint64_t generation = _session.generation;
-    if (self.prosodyMode != 0 && !pocket) {
-        task = CBMakeProsodyVoiceTask(self.voices.selectedItem.representedObject,
-            generation, self.prosodyMode, &voiceError);
-        if (task == nil) { [self failSpeech:voiceError.localizedDescription]; return; }
-    }
     if (previewUID == nil) {
         int32_t status = [self prepareConversation];
         if (status != 0) { [self fail:sender_error(status)]; return; }
@@ -1219,31 +1250,12 @@ static int virtual_route_report(void) {
     self.previewUID = nil;
     [self updateControls];
 }
-- (void)prosodyChanged:(id)sender {
-    NSMenuItem *item = [sender isKindOfClass:NSPopUpButton.class] ? [sender selectedItem] : sender;
-    if ([((CBVoiceDescriptor *)self.voices.selectedItem.representedObject).identifier isEqual:CBPocketIdentifier()]) { [self updateControls]; return; }
-    // 选择只修改下次任务；忙碌或清理失败时恢复控件，不允许 UI 与实际模式不一致。
-    if (_session.state != 0 || self.cleanupFailed || self.importingVoice || self.loadingBackground
-        || self.requestingMicrophone || self.requestingBackground || item == nil || item.tag < 0 || item.tag > 5) {
-        [self updateControls];
-        return;
-    }
-    self.prosodyMode = (uint32_t)item.tag;
-    [self rememberSetting:@"prosody_mode" value:@(self.prosodyMode)];
-    self.status.stringValue = [NSString stringWithFormat:@"表达：%@ · 下次发送或试听生效", item.title];
-    [self updateControls];
-}
 - (void)buildMenu {
     // 通过系统 responder chain 提供复制、粘贴、撤销等快捷键，不自己重新实现编辑器。
     NSMenu *bar = [[NSMenu alloc] init];
     NSMenuItem *application = [[NSMenuItem alloc] init];
     [bar addItem:application];
     NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"CallBridge"];
-    NSMenuItem *importItem = [appMenu addItemWithTitle:@"导入音色预设…" action:@selector(importVoice:) keyEquivalent:@"o"];
-    importItem.target = self;
-    importItem.toolTip = @"仅本次运行有效，不复制文件、不自动播放；只接受内置系统音色的 JSON 预设。";
-    NSMenuItem *clearItem = [appMenu addItemWithTitle:@"移除已导入的预设" action:@selector(clearVoices:) keyEquivalent:@""];
-    clearItem.target = self;
     [appMenu addItemWithTitle:@"退出 CallBridge" action:@selector(terminate:) keyEquivalent:@"q"];
     application.submenu = appMenu;
     NSMenuItem *windowsItem = [[NSMenuItem alloc] initWithTitle:@"窗口" action:nil keyEquivalent:@""];
@@ -1266,17 +1278,6 @@ static int virtual_route_report(void) {
     [edit addItemWithTitle:@"粘贴" action:@selector(paste:) keyEquivalent:@"v"];
     [edit addItemWithTitle:@"全选" action:@selector(selectAll:) keyEquivalent:@"a"];
     editItem.submenu = edit;
-    NSMenuItem *expressionItem = [[NSMenuItem alloc] initWithTitle:@"表达" action:nil keyEquivalent:@""];
-    [bar addItem:expressionItem];
-    NSMenu *expressionMenu = [[NSMenu alloc] initWithTitle:@"表达"];
-    expressionItem.submenu = expressionMenu;
-    NSArray *expressions = prosody_titles();
-    for (NSUInteger index = 0; index < expressions.count; ++index) {
-        NSMenuItem *item = [expressionMenu addItemWithTitle:expressions[index] action:@selector(prosodyChanged:) keyEquivalent:@""];
-        item.target = self;
-        item.tag = (NSInteger)index;
-        item.toolTip = @"只影响下一次任务；默认原样朗读。自动断句不猜测情绪，手动语气效果仍需听评。";
-    }
     // 导入只准备素材；播放入口经确认后立即输出，菜单与面板共用同一授权和音轨控制。
     self.backgroundMenuItem = [[NSMenuItem alloc] initWithTitle:@"背景音" action:nil keyEquivalent:@""];
     [bar addItem:self.backgroundMenuItem];
@@ -1301,16 +1302,8 @@ static int virtual_route_report(void) {
     NSApp.mainMenu = bar;
 }
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
-    BOOL idle = _session.state == 0 && _sender == NULL && !self.importingVoice && !self.loadingBackground
+    BOOL idle = _session.state == 0 && _sender == NULL && !self.loadingBackground
         && !self.cleanupFailed && !self.requestingMicrophone && !self.requestingBackground;
-    if (item.action == @selector(prosodyChanged:)) {
-        item.state = item.tag == self.prosodyMode ? NSControlStateValueOn : NSControlStateValueOff;
-        return _session.state == 0 && !self.cleanupFailed && !self.requestingMicrophone && !self.requestingBackground
-            && !self.importingVoice && !self.loadingBackground
-            && ![((CBVoiceDescriptor *)self.voices.selectedItem.representedObject).identifier isEqual:CBPocketIdentifier()];
-    }
-    if (item.action == @selector(importVoice:) || item.action == @selector(clearVoices:))
-        return idle;
     if (item.action == @selector(stop:)) return self.stopButton.enabled;
     if (item.action == @selector(importBackground:)) return idle;
     if (item.action == @selector(toggleBackground:)) {
@@ -1325,7 +1318,7 @@ static int virtual_route_report(void) {
     if (item.action == @selector(clearBackground:)) return self.backgroundClearButton.enabled;
     if (item.action == @selector(backgroundGainChanged:)) {
         item.state = fabsf(self.backgroundGain - item.tag / 100.0f) < 0.001f ? NSControlStateValueOn : NSControlStateValueOff;
-        return self.backgroundEnabled && !self.importingVoice && !self.loadingBackground && !self.cleanupFailed;
+        return self.backgroundEnabled && !self.loadingBackground && !self.cleanupFailed;
     }
     return YES;
 }
@@ -1497,65 +1490,6 @@ static int virtual_route_report(void) {
     [self showAudio:nil];
     [[self connectionGuide] beginSheetModalForWindow:self.audioWindow completionHandler:nil];
 }
-- (void)importVoice:(id)sender {
-    (void)sender;
-    if (_session.state != 0 || _sender != NULL || self.importingVoice || self.loadingBackground || self.cleanupFailed) return;
-    self.importingVoice = YES;
-    self.armButton.state = NSControlStateValueOff;
-    [self updateControls];
-    NSOpenPanel *panel = NSOpenPanel.openPanel;
-    panel.canChooseDirectories = NO;
-    panel.allowsMultipleSelection = NO;
-    panel.resolvesAliases = NO;
-    panel.message = @"选择音色预设 JSON；保存本地文件引用，下次启动重新校验，不安装、不播放。";
-    [self showAudio:nil];
-    [panel beginSheetModalForWindow:self.audioWindow completionHandler:^(NSModalResponse response) {
-        if (response != NSModalResponseOK) { self.importingVoice = NO; [self updateControls]; return; }
-        NSURL *url = panel.URL;
-        NSArray *presetPaths = self.settings[@"voice_preset_paths"];
-        if (presetPaths.count >= 64 && ![presetPaths containsObject:url.path]) {
-            self.importingVoice = NO;
-            self.status.stringValue = @"最多记住 64 个音色预设，请先移除不再使用的预设。";
-            [self updateControls];
-            return;
-        }
-        self.status.stringValue = @"正在校验音色预设…";
-        // 有界文件读取/JSON 解析放后台；目录提交和控件更新仍只在主线程。
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            NSError *error = nil;
-            CBVoiceDescriptor *voice = CBReadVoicePreset(url, &error);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.importingVoice = NO;
-                NSError *registrationError = error;
-                if (voice != nil && [self.voiceCatalog addPreset:voice error:&registrationError]) {
-                    NSMutableArray *paths = [self.settings[@"voice_preset_paths"] mutableCopy];
-                    if (![paths containsObject:url.path]) [paths addObject:url.path];
-                    [self rememberSetting:@"voice_preset_paths" value:paths];
-                    [self rememberSetting:@"voice_id" value:voice.identifier];
-                    [self refresh:nil];
-                    for (NSMenuItem *item in self.voices.itemArray) {
-                        CBVoiceDescriptor *candidate = item.representedObject;
-                        if ([candidate.identifier isEqual:voice.identifier]) [self.voices selectItem:item];
-                    }
-                    self.status.stringValue = @"预设已加入并记住文件引用，下次启动自动恢复；不会自动播放。";
-                } else {
-                    self.status.stringValue = registrationError.localizedDescription ?: @"预设导入失败，保留原音色。";
-                }
-                [self updateControls];
-            });
-        });
-    }];
-}
-- (void)clearVoices:(id)sender {
-    (void)sender;
-    if (_session.state != 0 || _sender != NULL || self.importingVoice || self.loadingBackground || self.cleanupFailed) return;
-    [self.voiceCatalog clearPresets];
-    [self rememberSetting:@"voice_preset_paths" value:@[]];
-    [self rememberSetting:@"voice_id" value:@""];
-    self.armButton.state = NSControlStateValueOff;
-    [self refresh:nil];
-    self.status.stringValue = @"预设和保存的引用已移除；源文件未修改。";
-}
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     // 3. 构建普通原生窗口；这里只组装控件，不自动开始合成或音频 IO。
     (void)notification;
@@ -1583,18 +1517,6 @@ static int virtual_route_report(void) {
     self.pinButton = [NSButton checkboxWithTitle:@"置顶" target:self action:@selector(pinChanged:)];
     self.pinButton.state = NSControlStateValueOn;
     self.pinButton.toolTip = @"保持在普通窗口上方，不注册全局快捷键";
-    NSTextField *expressionLabel = [NSTextField labelWithString:@"表达"];
-    expressionLabel.font = CBDetailFont();
-    self.expressions = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    self.expressions.accessibilityLabel = @"表达模式";
-    self.expressions.target = self;
-    self.expressions.action = @selector(prosodyChanged:);
-    self.expressions.toolTip = @"只影响下一次发送或试听，不自动播放。温和、轻快、认真为语速和音高预设。";
-    [self.expressions addItemsWithTitles:prosody_titles()];
-    for (NSInteger index = 0; index < self.expressions.numberOfItems; ++index)
-        [self.expressions itemAtIndex:index].tag = index;
-    NSStackView *header = [NSStackView stackViewWithViews:@[expressionLabel, self.expressions]];
-    header.spacing = CBPanelSpacing;
     self.voices = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     self.voices.accessibilityLabel = @"合成语音";
     self.voices.target = self;
@@ -1741,18 +1663,19 @@ static int virtual_route_report(void) {
         [scroll.heightAnchor constraintGreaterThanOrEqualToConstant:90]
     ]];
     [scroll setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationVertical];
-    self.pocketButton = [NSButton buttonWithTitle:@"下载 Pocket · 170 MB" target:self action:@selector(pocketAction:)];
+    self.pocketButton = [NSButton buttonWithTitle:@"检查中…" target:self action:@selector(pocketAction:)];
+    self.pocketStatus = [NSTextField labelWithString:@"Pocket 中文 · 检查中"];
+    self.pocketStatus.font=CBDetailFont();
+    self.pocketUseButton = [NSButton buttonWithTitle:@"使用 Pocket" target:self action:@selector(usePocket:)];
+    self.pocketUseButton.toolTip=@"已下载并通过校验后可选择使用；不自动播放或发送。也可在上方音色菜单切回系统 TTS。";
     self.pocketButton.toolTip = @"可选本地中文 TTS。下载后占约 170 MB，临时空间需约 250 MB；未下载仍使用系统音色。选择 Pocket 后可试听随包示例。";
-    NSButton *voiceImport = [NSButton buttonWithTitle:@"导入预设…" target:self action:@selector(importVoice:)];
-    NSButton *voiceClear = [NSButton buttonWithTitle:@"移除预设" target:self action:@selector(clearVoices:)];
-    [voiceImport bind:NSEnabledBinding toObject:self.refreshButton withKeyPath:@"enabled" options:nil];
-    [voiceClear bind:NSEnabledBinding toObject:self.refreshButton withKeyPath:@"enabled" options:nil];
-    NSButton *personal = [NSButton buttonWithTitle:@"个人音色模拟" target:self action:@selector(showPlaceholder:)];
-    personal.toolTip = @"预留入口，当前没有个人音色训练功能";
+    NSButton *personal = [NSButton buttonWithTitle:@"个人音色模拟" target:self action:@selector(showPersonal:)];
+    personal.toolTip = @"导入本地语音样本，使用 Pocket 生成并保存个人音色";
     NSButton *openText = [NSButton buttonWithTitle:@"打开文字输入  ↗" target:self action:@selector(showText:)];
     CBInstallColumn(self.audioWindow, CBColumn(@[
-        CBSection(@"声音"), options, CBRow(@[voiceImport, voiceClear]), header,
-        CBRow(@[CBSection(@"可选引擎"), self.pocketButton, personal]),
+        CBSection(@"声音"), options,
+        CBRow(@[CBSection(@"可选引擎"), personal]),
+        CBRow(@[self.pocketStatus, self.pocketButton, self.pocketUseButton]),
         CBSection(@"本机试听"), previewRow, CBSection(@"通话输出"), sendRow,
         self.routeLabel, routeRow, CBRow(@[openText, [self stopMirror]]), [self statusMirror]
     ]), NO);
@@ -1765,7 +1688,7 @@ static int virtual_route_report(void) {
     ]), NO);
     self.moduleGrid = [[CBModuleGrid alloc] initWithFrame:NSZeroRect];
     self.moduleGrid.tiles = @[
-        CBModuleTile(@"音频模拟", @"音色 · 表达 · 通话输出", @"waveform", self, @selector(showAudio:)),
+        CBModuleTile(@"音频模拟", @"音色 · 引擎 · 通话输出", @"waveform", self, @selector(showAudio:)),
         CBModuleTile(@"混音设置", @"文件背景 · 真实环境", @"slider.horizontal.3", self, @selector(showMix:)),
         CBModuleTile(@"画面处理", @"虚拟形象 · 预留", @"person.crop.rectangle", self, @selector(showPlaceholder:)),
         CBModuleTile(@"待添加", @"留给下一种可能", @"plus", self, @selector(showPlaceholder:))
@@ -1787,7 +1710,7 @@ static int virtual_route_report(void) {
     else [self restoreSettings];
     [self.window.contentView layoutSubtreeIfNeeded];
     [self.moduleGrid fitWidth:self.moduleScroll.contentSize.width];
-    if (!self.uiSmoke) CBPocketRefresh(^(NSString *error) { [self refresh:nil]; if (error) self.status.stringValue = [@"Pocket 校验失败：" stringByAppendingString:error]; });
+    [self refreshPocket];
     if (self.pendingTextToggle) { self.pendingTextToggle = NO; [self showText:nil]; }
     else [self showMain:nil];
     [NSApp activateIgnoringOtherApps:YES];
@@ -1797,7 +1720,7 @@ static int virtual_route_report(void) {
             NSArray *routesBefore = default_routes();
             // 不录屏，只将自己的内容视图绘到内存位图；输出在 build/ 下供检查布局。
             BOOL fits = YES, snapshots = YES;
-            NSArray<NSView *> *controls = @[self.pocketButton, self.voices, self.expressions, expressionLabel, self.refreshButton, self.pinButton, self.volume,
+            NSArray<NSView *> *controls = @[self.pocketButton, self.pocketUseButton, self.pocketStatus, self.voices, self.refreshButton, self.pinButton, self.volume,
                 self.sendButton, self.stopButton, self.armButton, self.previewDevices, self.previewButton, self.sendDevices, sendLabel,
                 self.backgroundImportButton, self.backgroundClearButton, self.backgroundToggleButton, self.backgroundLoopButton,
                 self.backgroundFileLabel, self.backgroundVolumeLabel, self.backgroundVolume, self.backgroundPauseButton, self.routeLabel, self.routeHelpButton,
@@ -1851,6 +1774,13 @@ static int virtual_route_report(void) {
             }
             snapshots &= CBSaveWindowImage(self.textWindow, @"ui-text.png", self.uiCapture)
                 && CBSaveWindowImage(self.audioWindow, @"ui-audio.png", self.uiCapture) && CBSaveWindowImage(self.mixWindow, @"ui-mix.png", self.uiCapture);
+            // 只构建个人面板，不调用 present 的磁盘检查，更不导入样本或推理。
+            CBPersonalVoiceController *personalPanel=[CBPersonalVoiceController new];
+            [personalPanel showWindow:nil];
+            [personalPanel.window.contentView layoutSubtreeIfNeeded];
+            snapshots &= CBSaveWindowImage(personalPanel.window,@"ui-personal.png",self.uiCapture);
+            BOOL personalEntry=[self respondsToSelector:@selector(showPersonal:)] && !personalPanel.busy;
+            [personalPanel close];
             for (NSWindow *window in @[self.window, self.textWindow, self.audioWindow, self.mixWindow])
                 window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
             [self.window setContentSize:CBPanelDefaultSize];
@@ -1867,18 +1797,11 @@ static int virtual_route_report(void) {
             self.volume.doubleValue = 0.35;
             [self volumeChanged:nil];
             BOOL volumeWorks = [self.volumeLabel.stringValue isEqual:@"人声 35%"];
-            BOOL expressionWorks = self.prosodyMode == 0 && self.expressions.selectedTag == 0
-                && self.expressions.numberOfItems == 6 && self.expressions.enabled;
-            for (NSUInteger mode = 0; mode < 6; ++mode) {
-                [self.expressions selectItemWithTag:(NSInteger)mode];
-                [self prosodyChanged:self.expressions];
-                NSMenuItem *menuItem = [NSApp.mainMenu itemWithTitle:@"表达"].submenu.itemArray[mode];
-                expressionWorks &= self.prosodyMode == mode && [self validateMenuItem:menuItem]
-                    && menuItem.state == NSControlStateValueOn && self.job == nil && self->_sender == NULL;
-            }
-            NSMenuItem *original = [NSApp.mainMenu itemWithTitle:@"表达"].submenu.itemArray[0];
-            [self prosodyChanged:original];
-            expressionWorks &= self.expressions.selectedTag == 0 && self.prosodyMode == 0;
+            // 废弃入口必须同时从面板和菜单移除，旧配置不能重新激活这些动作。
+            BOOL legacyControlsRemoved = [NSApp.mainMenu itemWithTitle:@"表达"] == nil
+                && ![self respondsToSelector:NSSelectorFromString(@"prosodyChanged:")]
+                && ![self respondsToSelector:NSSelectorFromString(@"importVoice:")]
+                && ![self respondsToSelector:NSSelectorFromString(@"clearVoices:")];
             self.volume.doubleValue = 1;
             [self volumeChanged:nil];
             self.status.stringValue = @"设备清理失败，已禁止继续发送。请退出程序；不会自动切换到真实麦克风。";
@@ -1921,21 +1844,9 @@ static int virtual_route_report(void) {
             targetSafe &= cb_session_begin(&self->_session, pendingText.bytes, (uint32_t)pendingText.length) == 0;
             [self updateControls];
             targetSafe &= !self.sendDevices.enabled && !self.sendButton.enabled && self.stopButton.enabled;
-            expressionWorks &= !self.expressions.enabled;
-            [self.expressions selectItemWithTag:4];
-            [self prosodyChanged:self.expressions];
-            expressionWorks &= self.prosodyMode == 0 && self.expressions.selectedTag == 0 && self.job == nil;
             [self.stopButton performClick:nil];
             targetSafe &= self->_session.state == 0 && self->_sender == NULL && self.job == nil
                 && self.armButton.state == NSControlStateValueOff && !self.sendButton.enabled && self.sendDevices.enabled;
-            NSMenuItem *importItem = [[NSMenuItem alloc] initWithTitle:@"导入" action:@selector(importVoice:) keyEquivalent:@""];
-            BOOL importSafe = [self validateMenuItem:importItem];
-            self.importingVoice = YES;
-            [self updateControls];
-            importSafe &= ![self validateMenuItem:importItem] && !self.voices.enabled && !self.sendButton.enabled
-                && !self.previewButton.enabled && !self.refreshButton.enabled && !self.armButton.enabled && !self.sendDevices.enabled;
-            self.importingVoice = NO;
-            [self updateControls];
             NSMenuItem *backgroundImport = [[NSMenuItem alloc] initWithTitle:@"导入背景" action:@selector(importBackground:) keyEquivalent:@""];
             NSMenuItem *backgroundToggle = [[NSMenuItem alloc] initWithTitle:@"启用背景" action:@selector(toggleBackground:) keyEquivalent:@""];
             BOOL backgroundSafe = !self.backgroundEnabled && self.backgroundPCM == nil && ![self validateMenuItem:backgroundToggle]
@@ -1944,7 +1855,7 @@ static int virtual_route_report(void) {
             self.loadingBackground = YES;
             [self updateControls];
             backgroundSafe &= !self.sendButton.enabled && !self.previewButton.enabled && !self.refreshButton.enabled
-                && ![self validateMenuItem:importItem] && ![self validateMenuItem:backgroundImport]
+                && ![self validateMenuItem:backgroundImport]
                 && !self.backgroundImportButton.enabled && !self.backgroundToggleButton.enabled && !self.routeHelpButton.enabled;
             self.loadingBackground = NO;
             float sample = 0.1f;
@@ -2018,7 +1929,7 @@ static int virtual_route_report(void) {
             }
             BOOL guideSafe = [self.routeLabel.stringValue containsString:@"通话接收未确认"]
                 && [[self connectionGuide].informativeText containsString:@"这会影响使用默认输入的其他应用"]
-                && [self.window.title containsString:@"0.6.0"];
+                && [self.window.title containsString:[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]];
             if (self.previewDevices.numberOfItems > 1 && self.voices.numberOfItems > 0) {
                 [self.previewDevices selectItemAtIndex:1];
                 [self previewDeviceChanged:nil];
@@ -2027,7 +1938,6 @@ static int virtual_route_report(void) {
                 previewSafe &= cb_session_begin(&self->_session, text.bytes, (uint32_t)text.length) == 0;
                 self.previewUID = self.previewDevices.selectedItem.representedObject;
                 [self updateControls];
-                importSafe &= ![self validateMenuItem:importItem];
                 backgroundSafe &= ![self validateMenuItem:backgroundImport] && ![self validateMenuItem:backgroundToggle];
                 backgroundSafe &= !self.backgroundImportButton.enabled && !self.backgroundClearButton.enabled
                     && !self.backgroundToggleButton.enabled && !self.backgroundLoopButton.enabled && self.backgroundVolume.enabled
@@ -2092,7 +2002,7 @@ static int virtual_route_report(void) {
             [self updateControls];
             environmentSafe &= !self.sendButton.enabled && !self.previewButton.enabled && !self.armButton.enabled
                 && !self.environmentToggle.enabled && !self.microphoneDevices.enabled && self.stopButton.enabled
-                && ![self validateMenuItem:importItem];
+                && ![self validateMenuItem:backgroundImport];
             [self stop:nil];
             environmentSafe &= !self.requestingMicrophone && !self.environmentEnabled && self->_microphone == NULL;
             self.requestingMicrophone = YES;
@@ -2157,7 +2067,7 @@ static int virtual_route_report(void) {
             [self refresh:nil];
             BOOL settingsSafe = fabs(self.volume.doubleValue - 0.32) < 0.001
                 && fabs(self.backgroundGain - 0.61) < 0.001 && fabs(self.environmentGain - 0.43) < 0.001
-                && self.prosodyMode == 4 && !self.backgroundLoop && self.pinButton.state == NSControlStateValueOff
+                && !self.backgroundLoop && self.pinButton.state == NSControlStateValueOff
                 && [self.sendDevices.selectedItem.representedObject isEqual:@"BlackHole2ch_UID"]
                 && self.voices.selectedItem.representedObject == nil && self.previewDevices.selectedItem.representedObject == nil
                 && self.microphoneDevices.selectedItem.representedObject == nil
@@ -2175,14 +2085,15 @@ static int virtual_route_report(void) {
             [self refresh:nil];
             BOOL passed = fits && self.window.visible && self.editor.editable && !self.sendButton.enabled
                 && self.armButton.state == NSControlStateValueOff && self->_sender == NULL
-                && snapshots && pinWorks && volumeWorks && expressionWorks && previewSafe && previewCompletionSafe && continuousCompletionSafe
-                && targetSafe && importSafe && backgroundSafe && guideSafe && environmentSafe && modulesAccessible && independentText && settingsSafe
+                && snapshots && personalEntry && pinWorks && volumeWorks && legacyControlsRemoved && previewSafe && previewCompletionSafe && continuousCompletionSafe
+                && targetSafe && backgroundSafe && guideSafe && environmentSafe && modulesAccessible && independentText && settingsSafe
                 && self.textWindow.level == NSNormalWindowLevel;
             print_report(@{ @"mode": @"ui-smoke", @"passed": @(passed), @"content_fits": @(fits),
                 @"audio_io_started": @NO, @"sizes": sizes, @"snapshots_saved": @(snapshots),
                 @"microphone_io_started": @NO, @"environment_permission_and_stop_guards": @(environmentSafe),
                 @"environment_close_preserves_speech_and_stale_permission_rejected": @(environmentSafe),
-                @"visible_expression_control_and_menu_sync": @(expressionWorks),
+                @"legacy_preset_and_expression_controls_removed": @(legacyControlsRemoved),
+                @"personal_voice_panel_without_io": @(personalEntry),
                 @"visual_acceptance": self.uiCapture ? @"own_window_screenshots_require_review" : @"manual_required_offscreen_images_omit_system_controls",
                 @"preview_requires_selection_and_excludes_send": @(previewSafe),
                 @"preview_completion_closes_with_background_settings": @(previewCompletionSafe),
@@ -2190,7 +2101,6 @@ static int virtual_route_report(void) {
                 @"responsive_modules_accessible": @(modulesAccessible),
                 @"independent_text_window_and_safe_toggle": @(independentText),
                 @"virtual_target_selection_revokes_permission": @(targetSafe),
-                @"import_excludes_active_audio": @(importSafe),
                 @"background_confirmation_without_text_and_independent_close": @(backgroundSafe),
                 @"settings_restore_without_io_and_missing_devices_do_not_fallback": @(settingsSafe),
                 @"background_import_and_playback_isolation": @(backgroundSafe),
@@ -2231,11 +2141,20 @@ static int virtual_route_report(void) {
     [self stop:nil];
     self.terminating = YES;
     CBPocketCancelInstall();
+    [self.personalController cancel];
     // 正常退出等已提交的写入完成，但不在主线程同步等磁盘，也不在等待期间继续发声。
     dispatch_async(self.settingsQueue, ^{
-        dispatch_async(dispatch_get_main_queue(), ^{ [application replyToApplicationShouldTerminate:YES]; });
+        dispatch_async(dispatch_get_main_queue(), ^{ [self finishTermination:application]; });
     });
     return NSTerminateLater;
+}
+- (void)finishTermination:(NSApplication *)application {
+    // 给取消中的样本任务完成临时文件清理的机会，主线程仍可响应窗口事件。
+    if (self.personalController.busy) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,50*NSEC_PER_MSEC),dispatch_get_main_queue(), ^{
+            [self finishTermination:application];
+        });
+    } else [application replyToApplicationShouldTerminate:YES];
 }
 - (void)applicationWillTerminate:(NSNotification *)notification {
     // 菜单退出等路径最后仍要清理；stop 可以重复调用。

@@ -33,7 +33,7 @@ pub fn catalog() -> Result<Catalog> {
 pub fn digest() -> String {
     format!("{:x}", Sha256::digest(CATALOG))
 }
-fn check(root: &Path, a: &Asset) -> Result<()> {
+pub(crate) fn check(root: &Path, a: &Asset) -> Result<()> {
     let path = root.join(&a.name);
     let meta = fs::symlink_metadata(&path).with_context(|| format!("缺少 {}", a.name))?;
     ensure!(
