@@ -1,0 +1,26 @@
+# 独立推理进程：不把模型、推理运行库或下载依赖链接到实时音频核心。
+[package]
+name = "callbridge-pocket"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "=1.0.102"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "load-dynamic", "api-21"] }
+sentencepiece-rust = "=0.1.0"
+rustfst = "=1.3.1"
+regex = "=1.12.3"
+sha2 = "=0.10.9"
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+hound = "=3.5.1"
+rand_mt = "=5.0.0"
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+
+[profile.release.build-override]
+strip = "none"

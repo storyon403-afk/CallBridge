@@ -7,6 +7,8 @@ JSON 只交给 Rust 解析一次；本层只处理文件句柄、系统音色对
 #import "voice_provider.h"
 #import "voice_plugin.h"
 #import "speech_job.h"
+#import "plan_task.h"
+#import "pocket_provider.h"
 #import <AVFAudio/AVFAudio.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -26,8 +28,13 @@ static BOOL allowed_voice(AVSpeechSynthesisVoice *voice) {
 
 @interface CBVoiceDescriptor ()
 - (instancetype)initWithVoice:(AVSpeechSynthesisVoice *)voice preset:(const CallBridgeVoicePreset *)preset;
+- (instancetype)initPocket;
 @end
 @implementation CBVoiceDescriptor
+- (instancetype)initPocket {
+    if ((self = [super init])) { _identifier = CBPocketIdentifier(); _voiceID = _identifier; _name = @"Pocket · 中文示例音色"; _language = @"zh-CN"; _gender = @"参考音色"; _quality = 0; _rate = 1; _pitch = 1; _preset = NO; }
+    return self;
+}
 - (instancetype)initWithVoice:(AVSpeechSynthesisVoice *)voice preset:(const CallBridgeVoicePreset *)preset {
     self = [super init];
     if (self) {
@@ -76,6 +83,10 @@ NSString *CBPreviewPhrase(NSString *language) {
 @end
 
 id<CBVoiceTask> CBMakeVoiceTask(CBVoiceDescriptor *voice, NSError **error) {
+    if ([voice.identifier isEqual:CBPocketIdentifier()]) {
+        if (!CBPocketReady()) { voice_error(error, -23, @"Pocket 插件未安装或尚未通过校验"); return nil; }
+        return CBMakePocketTask(NO);
+    }
     AVSpeechSynthesisVoice *systemVoice = voice ? [AVSpeechSynthesisVoice voiceWithIdentifier:voice.voiceID] : nil;
     if (!allowed_voice(systemVoice) || ![systemVoice.language isEqual:voice.language]) {
         voice_error(error, -20, @"所选音色已不可用或不符合普通系统音色策略；不会自动替换。请刷新后重新选择。");
@@ -86,6 +97,21 @@ id<CBVoiceTask> CBMakeVoiceTask(CBVoiceDescriptor *voice, NSError **error) {
     task.job = [[CallBridgeSpeechJob alloc] initWithSpeechRate:voice.rate pitch:voice.pitch];
     if (task.job == nil) { voice_error(error, -8, @"音色参数超出允许范围。"); return nil; }
     return task;
+}
+
+id<CBVoiceTask> CBMakeProsodyVoiceTask(CBVoiceDescriptor *voice, uint64_t generation,
+    uint32_t mode, NSError **error) {
+    // 原样模式仍走旧 provider，便于与计划模式对照，不强迫所有用户启用实验规则。
+    id<CBVoiceTask> baseline = CBMakeVoiceTask(voice, error);
+    if (baseline == nil || mode == 0 || [voice.identifier isEqual:CBPocketIdentifier()]) return baseline;
+    if (mode > 5 || generation == 0) { voice_error(error, -1, @"韵律模式或任务代次无效。"); return nil; }
+    return CBCreatePlanTask(voice.voiceID, voice.language, voice.rate, voice.pitch,
+        generation, mode, ^id<CBVoiceTask>(float rate, float pitch) {
+            CBAppleVoiceTask *segment = [[CBAppleVoiceTask alloc] init];
+            segment.voice = voice;
+            segment.job = [[CallBridgeSpeechJob alloc] initWithSpeechRate:rate pitch:pitch];
+            return segment.job == nil ? nil : segment;
+        });
 }
 
 CBVoiceDescriptor *CBReadVoicePreset(NSURL *url, NSError **error) {
@@ -137,7 +163,10 @@ CBVoiceDescriptor *CBReadVoicePreset(NSURL *url, NSError **error) {
     if (self) _presets = [NSMutableArray array];
     return self;
 }
-- (NSArray<CBVoiceDescriptor *> *)voices { return [CBSystemVoices() arrayByAddingObjectsFromArray:self.presets]; }
+- (NSArray<CBVoiceDescriptor *> *)voices {
+    NSArray *voices = [CBSystemVoices() arrayByAddingObjectsFromArray:self.presets];
+    return CBPocketReady() ? [voices arrayByAddingObject:[[CBVoiceDescriptor alloc] initPocket]] : voices;
+}
 - (BOOL)addPreset:(CBVoiceDescriptor *)preset error:(NSError **)error {
     if (!preset.preset || self.presets.count >= 64) {
         voice_error(error, -21, @"只接受预设；本次会话最多导入 64 个。"); return NO;

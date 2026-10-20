@@ -18,6 +18,10 @@ sender 的控制函数必须串行调用；Rust player 必须活到最后一个�
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef CALLBRIDGE_SENDER_TRACE
+#include <math.h>
+#include <stdio.h>
+#endif
 
 struct CallBridgeSender {
     AudioUnit unit;
@@ -31,7 +35,29 @@ struct CallBridgeSender {
     // 记录初始化走到了哪一步，失败时按实际取得的资源逆序清理。
     int initialized;
     int started;
+#ifdef CALLBRIDGE_SENDER_TRACE
+    // 仅独立诊断构建启用：单一回调写入，停止 IO 后控制线程读取，不保存音频。
+    uint64_t trace_frames;
+    uint64_t trace_silence_flags;
+    float trace_peak;
+#endif
 };
+
+#ifdef CALLBRIDGE_SENDER_TRACE
+// 只在控制线程查询与打印，不调音量、不解除系统静音；不可读取时保留错误码。
+static void trace_output_state(CallBridgeSender *sender, const char *stage) {
+    UInt32 mute = 0;
+    UInt32 size = sizeof(mute);
+    AudioObjectPropertyAddress address = {kAudioDevicePropertyProcessMute,
+        kAudioObjectPropertyScopeOutput, kAudioObjectPropertyElementMain};
+    OSStatus mute_status = AudioObjectGetPropertyData(sender->device, &address, 0, NULL, &size, &mute);
+    AudioUnitParameterValue volume = 0;
+    OSStatus volume_status = AudioUnitGetParameter(sender->unit, kHALOutputParam_Volume,
+        kAudioUnitScope_Global, 0, &volume);
+    fprintf(stderr, "sender_trace stage=%s device=%u process_mute_status=%d process_mute=%u unit_volume_status=%d unit_volume=%.6f\n",
+        stage, (unsigned)sender->device, (int)mute_status, (unsigned)mute, (int)volume_status, volume);
+}
+#endif
 
 // 1. 属性查询：selector 是“查什么”，scope 是“输入侧/输出侧/全局”。
 // size 既表示调用前的缓冲容量，也接收系统实际写回的字节数。
@@ -219,6 +245,15 @@ static OSStatus render_audio(void *context, AudioUnitRenderActionFlags *flags,
     // mDataByteSize 是字节，除以 sizeof(float) 才是 Rust 接口需要的样本容量。
     int32_t status = cb_player_render(sender->player, data->mBuffers[0].mData,
         data->mBuffers[0].mDataByteSize / sizeof(float), frames, sender->channels);
+#ifdef CALLBRIDGE_SENDER_TRACE
+    sender->trace_frames += frames;
+    if (flags != NULL && (*flags & kAudioUnitRenderAction_OutputIsSilence)) sender->trace_silence_flags++;
+    if (status == 0) {
+        const float *samples = data->mBuffers[0].mData;
+        for (UInt32 index = 0; index < frames * sender->channels; ++index)
+            sender->trace_peak = fmaxf(sender->trace_peak, fabsf(samples[index]));
+    }
+#endif
     if (status != 0) atomic_store_explicit(&sender->callback_error, status, memory_order_relaxed);
     return noErr;
 }
@@ -235,6 +270,13 @@ int32_t cb_sender_close(CallBridgeSender **reference) {
         if (status != noErr) return status;
         sender->started = 0;
     }
+#ifdef CALLBRIDGE_SENDER_TRACE
+    if (sender->initialized) {
+        trace_output_state(sender, "stopped");
+        fprintf(stderr, "sender_trace frames=%llu silence_flag_buffers=%llu rendered_peak=%.6f\n",
+            (unsigned long long)sender->trace_frames, (unsigned long long)sender->trace_silence_flags, sender->trace_peak);
+    }
+#endif
     if (sender->initialized) {
         status = AudioUnitUninitialize(sender->unit);
         if (status != noErr) return status;
@@ -384,6 +426,45 @@ int32_t cb_sender_enable_environment(CallBridgeSender *sender, float gain) {
     return cb_player_enable_environment(sender->player, gain);
 }
 
+// 常驻会话仅预配置内存，开麦授权仍归 App；此处不打开任何输入设备。
+int32_t cb_sender_prepare_conversation(CallBridgeSender *sender, uint32_t background_continuous) {
+    if (sender == NULL || sender->started) return -20004;
+    return cb_player_prepare_conversation(sender->player, background_continuous);
+}
+
+int32_t cb_sender_abort_speech(CallBridgeSender *sender) {
+    return sender == NULL ? -20004 : cb_player_abort_speech(sender->player);
+}
+
+uint32_t cb_sender_speech_idle(CallBridgeSender *sender) {
+    return sender == NULL ? 0 : cb_player_done(sender->player);
+}
+
+int32_t cb_sender_ensure_started(CallBridgeSender *sender) {
+    if (sender == NULL) return -20004;
+    return sender->started ? 0 : cb_sender_start(sender);
+}
+
+int32_t cb_sender_set_environment_active(CallBridgeSender *sender, uint32_t active) {
+    return sender == NULL ? -20004 : cb_player_set_environment_active(sender->player, active);
+}
+
+int32_t cb_sender_flush_environment(CallBridgeSender *sender) {
+    return sender == NULL ? -20004 : cb_player_flush_environment(sender->player);
+}
+
+uint32_t cb_sender_environment_flushed(CallBridgeSender *sender) {
+    return sender == NULL ? 0 : cb_player_environment_flushed(sender->player);
+}
+
+uint32_t cb_sender_environment_epoch(CallBridgeSender *sender) {
+    return sender == NULL ? 0 : cb_player_environment_epoch(sender->player);
+}
+
+int32_t cb_sender_push_environment_epoch(CallBridgeSender *sender, const float *source, uint32_t frames, uint32_t channels, uint32_t epoch) {
+    return sender == NULL ? -20004 : cb_player_push_environment_epoch(sender->player, source, frames, channels, epoch);
+}
+
 int32_t cb_sender_push_environment(CallBridgeSender *sender, const float *source, uint32_t frames, uint32_t channels) {
     return sender == NULL ? -20004 : cb_player_push_environment(sender->player, source, frames, channels);
 }
@@ -452,6 +533,9 @@ int32_t cb_sender_start(CallBridgeSender *sender) {
     status = AudioUnitGetProperty(sender->unit, kAudioOutputUnitProperty_CurrentDevice,
         kAudioUnitScope_Global, 0, &bound, &size);
     if (status != noErr || bound != sender->device) return -20001;
+#ifdef CALLBRIDGE_SENDER_TRACE
+    trace_output_state(sender, "before_start");
+#endif
     status = AudioOutputUnitStart(sender->unit);
     if (status == noErr) sender->started = 1;
     return status;

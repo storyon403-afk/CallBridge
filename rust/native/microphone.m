@@ -20,6 +20,7 @@ struct CallBridgeMicrophone {
     UInt32 channels;
     float *buffer;
     CallBridgeSender *sender;
+    uint32_t environment_epoch;
     _Atomic(int32_t) error;
     _Atomic(uint32_t) frames;
     BOOL initialized, started;
@@ -74,7 +75,7 @@ BOOL CBMicrophoneAuthorized(void) {
 }
 
 void CBRequestMicrophoneAccess(void (^completion)(BOOL)) {
-    // 永远回到主线程交付；回调只给出权限结果，不能自动开麦或发送旧文字。
+    // 永远回到主线程交付；只返回权限结果，由 App 核对本次持续发送确认与请求代次，绝不朗读草稿。
     [AVCaptureDevice requestAccessForMediaType:AVMediaTypeAudio completionHandler:^(BOOL granted) {
         dispatch_async(dispatch_get_main_queue(), ^{ completion(granted); });
     }];
@@ -127,7 +128,8 @@ static OSStatus capture_audio(void *context, AudioUnitRenderActionFlags *flags,
     if (status == noErr && input.mNumberBuffers == 1 && input.mBuffers[0].mData == microphone->buffer
         && input.mBuffers[0].mNumberChannels == microphone->channels
         && input.mBuffers[0].mDataByteSize == frames * microphone->channels * sizeof(float)) {
-        int32_t pushed = cb_sender_push_environment(microphone->sender, microphone->buffer, frames, microphone->channels);
+        int32_t pushed = cb_sender_push_environment_epoch(microphone->sender, microphone->buffer, frames,
+            microphone->channels, microphone->environment_epoch);
         // 满队列已经由 Rust 计数；取消期间拒绝采样也不是新故障。
         if (pushed != 0 && pushed != 1 && pushed != -2) status = -21004;
     } else if (status == noErr) { status = -21004; }
@@ -139,6 +141,8 @@ static OSStatus capture_audio(void *context, AudioUnitRenderActionFlags *flags,
 int32_t cb_microphone_open(const char *uid, CallBridgeSender *sender, CallBridgeMicrophone **reference) {
     if (reference == NULL || *reference != NULL || sender == NULL || uid == NULL || uid[0] == '\0') return -21004;
     if (!CBMicrophoneAuthorized()) return -21003;
+    uint32_t epoch = cb_sender_environment_epoch(sender);
+    if (epoch == 0) return -21004;
     CFStringRef identifier = CFStringCreateWithCString(NULL, uid, kCFStringEncodingUTF8);
     AudioDeviceID device = find_device(identifier);
     UInt32 channels = 0;
@@ -151,6 +155,8 @@ int32_t cb_microphone_open(const char *uid, CallBridgeSender *sender, CallBridge
     microphone->device = device;
     microphone->channels = channels;
     microphone->sender = sender;
+    // 每个输入实例冻结自己的代次，不在回调中借用“最新代次”冒充新一次授权。
+    microphone->environment_epoch = epoch;
     atomic_init(&microphone->error, 0);
     atomic_init(&microphone->frames, 0);
     microphone->buffer = calloc(16384 * channels, sizeof(float));

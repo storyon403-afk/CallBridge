@@ -1,0 +1,183 @@
+{
+  "id": "pocket-tts-zh-4l",
+  "version": 1,
+  "revision": "e969e8bd2a1b2277e5d27ada3a859bdbe283322d",
+  "platform": "macos-arm64",
+  "files": [
+    {
+      "name": "conditioner.onnx",
+      "sha256": "75eaf31a34e03468571abcf4db0abbbe799d226e1c9b9eeb8be663d6a5ecf553",
+      "bytes": 37580962
+    },
+    {
+      "name": "flowlm_prefill.onnx",
+      "sha256": "32f5aaa0e802b71835a98b0d0cfe2d9f4b904a3b5437bac8afbf7152b4b59bc8",
+      "bytes": 39608
+    },
+    {
+      "name": "flowlm_shared.data",
+      "sha256": "26b1ffe545b816e924853be857b481d818bda29490be4cd62a18b5238cb01e41",
+      "bytes": 86634496
+    },
+    {
+      "name": "flowlm_step.onnx",
+      "sha256": "851442933ee92c3e37b9e46b0b2b411a73ee983cde155abba7058722faae4393",
+      "bytes": 54288
+    },
+    {
+      "name": "mimi_decode_int8.onnx",
+      "sha256": "e23e174cc1af1328cbebdef1d37f4690cfc880238da47da3638907249e0dfb1d",
+      "bytes": 10561094
+    },
+    {
+      "name": "ort_glue.npz",
+      "sha256": "d064d9b885515d57e24b75faf32d2f412976fcff1223c99995695431b0b980b6",
+      "bytes": 136460
+    },
+    {
+      "name": "example.wav",
+      "sha256": "692ca2ded006d50edc7a9113eafcd290ae540b56b229826bc8052c9e6c2bbbe7",
+      "bytes": 122924
+    },
+    {
+      "name": "tokenizer.model",
+      "sha256": "039a38b5ee40ac3c8c056dd30c1276b62891ce45806eacaf2bb49537bbc63b86",
+      "bytes": 131771
+    },
+    {
+      "name": "libonnxruntime.dylib",
+      "sha256": "8fb7b56da8bfbb699bbbb0c580772a80aa433f4422a664f647551a6878e07db9",
+      "bytes": 33037336
+    },
+    {
+      "name": "ONNXRUNTIME-LICENSE",
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c",
+      "bytes": 1073
+    },
+    {
+      "name": "tagger.fst",
+      "sha256": "cf341314c51f7ce59049f3b2c42f0ce8fd71e6d08d4d6969613aad384a5e2ae8",
+      "bytes": 527178
+    },
+    {
+      "name": "verbalizer.fst",
+      "sha256": "5a13cd679dd54637d12d2bd1bd33ee2165d91c867e14468c93195af02256e5da",
+      "bytes": 1069758
+    },
+    {
+      "name": "WETEXT-LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    },
+    {
+      "name": "MODEL-README.md",
+      "sha256": "18c6f36b692066c2bc082b75695dcc629fe0e73c8ff15a89bce999bac5fb8cbe",
+      "bytes": 3288
+    },
+    {
+      "name": "ONNXRUNTIME-NOTICES",
+      "sha256": "143764b952fdb1a7c69ce653bfba74a7744d6a8a573bfb73e235fba356c83de3",
+      "bytes": 338088
+    }
+  ],
+  "downloads": [
+    {
+      "name": "conditioner.onnx",
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/conditioner.onnx",
+      "sha256": "75eaf31a34e03468571abcf4db0abbbe799d226e1c9b9eeb8be663d6a5ecf553",
+      "bytes": 37580962
+    },
+    {
+      "name": "flowlm_prefill.onnx",
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/flowlm_prefill.onnx",
+      "sha256": "32f5aaa0e802b71835a98b0d0cfe2d9f4b904a3b5437bac8afbf7152b4b59bc8",
+      "bytes": 39608
+    },
+    {
+      "name": "flowlm_shared.data",
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/flowlm_shared.data",
+      "sha256": "26b1ffe545b816e924853be857b481d818bda29490be4cd62a18b5238cb01e41",
+      "bytes": 86634496
+    },
+    {
+      "name": "flowlm_step.onnx",
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/flowlm_step.onnx",
+      "sha256": "851442933ee92c3e37b9e46b0b2b411a73ee983cde155abba7058722faae4393",
+      "bytes": 54288
+    },
+    {
+      "name": "mimi_decode_int8.onnx",
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/mimi_decode_int8.onnx",
+      "sha256": "e23e174cc1af1328cbebdef1d37f4690cfc880238da47da3638907249e0dfb1d",
+      "bytes": 10561094
+    },
+    {
+      "name": "ort_glue.npz",
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/ort_glue.npz",
+      "sha256": "d064d9b885515d57e24b75faf32d2f412976fcff1223c99995695431b0b980b6",
+      "bytes": 136460
+    },
+    {
+      "name": "example.wav",
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/samples/short_unseen.wav",
+      "sha256": "692ca2ded006d50edc7a9113eafcd290ae540b56b229826bc8052c9e6c2bbbe7",
+      "bytes": 122924
+    },
+    {
+      "name": "tokenizer.model",
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/tokenizer.model",
+      "sha256": "039a38b5ee40ac3c8c056dd30c1276b62891ce45806eacaf2bb49537bbc63b86",
+      "bytes": 131771
+    },
+    {
+      "name": "onnxruntime.whl",
+      "url": "https://files.pythonhosted.org/packages/a7/e7/61b2768393646bd12e31eeb71958193f4e02c98c4980cf9289d19bbb4a8f/onnxruntime-1.31.0-cp311-cp311-macosx_14_0_arm64.whl",
+      "sha256": "cbf1a7f6470ddfe9dbc781966af8ce4a10e1858d75a93f93cc6b9367c9587870",
+      "bytes": 0
+    },
+    {
+      "name": "wetext.whl",
+      "url": "https://files.pythonhosted.org/packages/43/fe/ca7ccae2673b64ba7d63612e68b31963e3842dd77fb6aa632270d123d685/wetext-0.1.8-py3-none-any.whl",
+      "sha256": "b2083e7f38ac38fcbecdf7aec6ac6f0e3d1a11b763facfa4daabc12138215454",
+      "bytes": 0
+    },
+    {
+      "name": "MODEL-README.md",
+      "sha256": "18c6f36b692066c2bc082b75695dcc629fe0e73c8ff15a89bce999bac5fb8cbe",
+      "bytes": 3288,
+      "url": "https://huggingface.co/hustfyb/pocket-tts-zh-4l-onnx/resolve/e969e8bd2a1b2277e5d27ada3a859bdbe283322d/README.md"
+    }
+  ],
+  "extract": [
+    {
+      "archive": "onnxruntime.whl",
+      "entry": "onnxruntime/capi/libonnxruntime.1.31.0.dylib",
+      "name": "libonnxruntime.dylib"
+    },
+    {
+      "archive": "onnxruntime.whl",
+      "entry": "onnxruntime/LICENSE",
+      "name": "ONNXRUNTIME-LICENSE"
+    },
+    {
+      "archive": "wetext.whl",
+      "entry": "wetext/fsts/zh/tn/tagger.fst",
+      "name": "tagger.fst"
+    },
+    {
+      "archive": "wetext.whl",
+      "entry": "wetext/fsts/zh/tn/verbalizer.fst",
+      "name": "verbalizer.fst"
+    },
+    {
+      "archive": "wetext.whl",
+      "entry": "wetext-0.1.8.dist-info/licenses/LICENSE",
+      "name": "WETEXT-LICENSE"
+    },
+    {
+      "archive": "onnxruntime.whl",
+      "entry": "onnxruntime/ThirdPartyNotices.txt",
+      "name": "ONNXRUNTIME-NOTICES"
+    }
+  ]
+}

@@ -26,6 +26,18 @@ typedef struct CallBridgePlayer CallBridgePlayer;
 CallBridgePlayer *cb_player_create(const float *source, uint32_t frames, uint32_t drain_frames);
 // 流式播放器每句最多 1,440,000 单声道帧；预分配固定内存，句内只追加，跨句须经过 next 的排空交接。
 CallBridgePlayer *cb_player_create_stream(uint32_t capacity_frames, uint32_t drain_frames);
+// 首次 append/render 前独占配置；预分配关闭的环境轨与空闲语音槽。background_continuous 为 0/1。
+int32_t cb_player_prepare_conversation(CallBridgePlayer *player, uint32_t background_continuous);
+// 以下控制调用串行，可与 render 并发；原生层先作废本句代次，再 abort，done 后才能复用。
+int32_t cb_player_abort_speech(const CallBridgePlayer *player);
+// active=0 立即阻断环境；先关闭旧输入，再 flush，flushed=1 后才可 active=1。
+// 函数不停止硬件。句柄存活且禁止并发销毁；0 成功，-1 参数，-2 状态。
+int32_t cb_player_set_environment_active(const CallBridgePlayer *player, uint32_t active);
+int32_t cb_player_flush_environment(const CallBridgePlayer *player);
+uint32_t cb_player_environment_flushed(const CallBridgePlayer *player);
+uint32_t cb_player_environment_epoch(const CallBridgePlayer *player);
+// 与原 push 相同的指针/帧/线程契约，epoch 必须由输入实例创建时冻结；0 无效。
+int32_t cb_player_push_environment_epoch(const CallBridgePlayer *player, const float *source, uint32_t frames, uint32_t channels, uint32_t epoch);
 // 跨句只在已配置背景或环境音、首次 append/render/采集前独占启用；之后模式固定。0 成功，-1 空指针，-2 状态。
 int32_t cb_player_enable_continuous(CallBridgePlayer *player);
 // 同一控制线程在 done=1 后重用语音容量，可与 render 并发；背景不重置，不重启设备。
@@ -92,6 +104,16 @@ int32_t cb_sender_start(CallBridgeSender *sender);
 // cancel 只发布静音意图，不释放；须先结束借用此 sender 的麦克风回调，再调用 close。
 void cb_sender_cancel(CallBridgeSender *sender);
 int32_t cb_sender_enable_environment(CallBridgeSender *sender, float gain);
+int32_t cb_sender_prepare_conversation(CallBridgeSender *sender, uint32_t background_continuous);
+int32_t cb_sender_abort_speech(CallBridgeSender *sender);
+uint32_t cb_sender_speech_idle(CallBridgeSender *sender);
+// start 幂等包装，只能由串行控制线程调用，不改设备目标。
+int32_t cb_sender_ensure_started(CallBridgeSender *sender);
+int32_t cb_sender_set_environment_active(CallBridgeSender *sender, uint32_t active);
+int32_t cb_sender_flush_environment(CallBridgeSender *sender);
+uint32_t cb_sender_environment_flushed(CallBridgeSender *sender);
+uint32_t cb_sender_environment_epoch(CallBridgeSender *sender);
+int32_t cb_sender_push_environment_epoch(CallBridgeSender *sender, const float *source, uint32_t frames, uint32_t channels, uint32_t epoch);
 int32_t cb_sender_push_environment(CallBridgeSender *sender, const float *source, uint32_t frames, uint32_t channels);
 int32_t cb_sender_set_environment_gain(CallBridgeSender *sender, float gain);
 uint32_t cb_sender_environment_dropped(CallBridgeSender *sender);

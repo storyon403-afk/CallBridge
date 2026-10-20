@@ -18,6 +18,8 @@ mod environment;
 mod mixer;
 mod pcm;
 mod player;
+pub mod prosody;
+pub mod prosody_stream;
 mod session;
 mod voice_plugin;
 

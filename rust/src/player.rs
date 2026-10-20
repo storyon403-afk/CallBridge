@@ -23,6 +23,8 @@
 默认人声 EOS 后背景淡出；显式跨句模式保留背景与设备，句间仍可暂停。取消覆盖整个混合输出。
 真实环境音通过独立的有界输入队列接入，先与人声相加，再与文件背景一起限幅；三轨音量独立。
 麦克风与输出各一个回调线程；销毁前两边都必须停止，不能只关输出就释放环境音队列。
+常驻通话模式预留关闭的环境轨，初始语音槽为空闲；环境可先输出，之后每句显式交接语音槽。
+独立环境门控与单句失败不设置总取消标志；只有总停止才覆盖所有轨道。
 
 音量使用 0～1 的线性增益，跨线程只传递 f32 的原始位。播放中每帧最多变化 1/240，
 在 48 kHz 下最多约 5 ms 到达目标，避免拖动滑块时突然跳变；首次播放直接使用设定音量。
@@ -51,6 +53,12 @@ pub struct Player {
     continuous: bool,
     drained: AtomicBool,
     rendered_frames: AtomicU32,
+    // conversation 是预配置模式，不是“正在开麦”；环境门控和句子各自独立。
+    conversation: bool,
+    background_continuous: bool,
+    speech_aborted: AtomicBool,
+    speech_serial: AtomicU32,
+    rendered_speech_serial: AtomicU32,
 }
 
 impl Player {
@@ -99,12 +107,21 @@ impl Player {
             continuous: false,
             drained: AtomicBool::new(false),
             rendered_frames: AtomicU32::new(0),
+            conversation: false,
+            background_continuous: false,
+            speech_aborted: AtomicBool::new(false),
+            speech_serial: AtomicU32::new(0),
+            rendered_speech_serial: AtomicU32::new(0),
         })
     }
 
     // 先验证整块再发布，失败不接受半块；只允许一个串行生产者调用 append / finish。
     fn append(&self, source: &[f32]) -> i32 {
-        if self.cancelled.load(Ordering::Acquire) || self.finished.load(Ordering::Acquire) {
+        if self.cancelled.load(Ordering::Acquire)
+            || self.finished.load(Ordering::Acquire)
+            || self.drained.load(Ordering::Acquire)
+            || self.speech_aborted.load(Ordering::Acquire)
+        {
             return -2;
         }
         let offset = self.published.load(Ordering::Relaxed) as usize;
@@ -131,6 +148,7 @@ impl Player {
     unsafe fn render(&self, output: *mut f32, capacity: u32, frames: u32, channels: u32) -> i32 {
         // 排空后不再读取或更新语音元数据；控制线程此时可能正在准备下一句。
         let speech_idle = self.continuous && self.drained.load(Ordering::Acquire);
+        let speech_aborted = self.speech_aborted.load(Ordering::Acquire);
         // Acquire 配合 cancel 的 Release；只要观察到取消，就不能继续把源音频当作有效内容。
         let cancelled = self.cancelled.load(Ordering::Acquire);
         // 只有这个串行音频线程推进位置，因此自身读位置可以使用 Relaxed。
@@ -153,6 +171,17 @@ impl Player {
             return status;
         }
         self.render_started.store(true, Ordering::Release);
+        if self.conversation && !speech_idle {
+            let serial = self.speech_serial.load(Ordering::Acquire);
+            if serial != self.rendered_speech_serial.load(Ordering::Relaxed) {
+                if !self.background_continuous {
+                    if let Some(background) = &self.background {
+                        background.restart();
+                    }
+                }
+                self.rendered_speech_serial.store(serial, Ordering::Relaxed);
+            }
+        }
         // 帧与声道布局已经通过 render_mono 校验；缩放只写本次请求的区域。
         let target = f32::from_bits(self.target_gain.load(Ordering::Acquire));
         let mut gain = if position == 0 {
@@ -162,7 +191,7 @@ impl Player {
         };
         let destination =
             unsafe { std::slice::from_raw_parts_mut(output, (frames * channels) as usize) };
-        let readable = if cancelled || speech_idle {
+        let readable = if cancelled || speech_idle || speech_aborted {
             0
         } else {
             frames.min(length.saturating_sub(position))
@@ -193,7 +222,11 @@ impl Player {
                     destination,
                     channels as usize,
                     readable,
-                    finished && !self.continuous,
+                    if self.conversation {
+                        !self.background_continuous && (finished || speech_idle || speech_aborted)
+                    } else {
+                        finished && !self.continuous
+                    },
                 );
             }
         }
@@ -202,7 +235,7 @@ impl Player {
         if self.cancelled.load(Ordering::Acquire) {
             unsafe { output.write_bytes(0, (frames * channels) as usize) };
         } else if !speech_idle {
-            if !finished {
+            if !finished && !speech_aborted {
                 let missing = frames - readable;
                 let previous = self.underrun_frames.load(Ordering::Relaxed);
                 self.underrun_frames
@@ -216,7 +249,9 @@ impl Player {
                 Ordering::Release,
             );
             // 必须是本次回调最后一次语音状态写入：发布后生产者可以立即重用缓冲。
-            if self.continuous && finished && position.saturating_add(frames) >= total {
+            if self.continuous
+                && (speech_aborted || (finished && position.saturating_add(frames) >= total))
+            {
                 self.drained.store(true, Ordering::Release);
             }
         }
@@ -232,6 +267,102 @@ pub extern "C" fn cb_player_create_stream(capacity: u32, drain_frames: u32) -> *
     Player::stream(capacity, drain_frames).map_or(std::ptr::null_mut(), |player| {
         Box::into_raw(Box::new(player))
     })
+}
+
+#[unsafe(no_mangle)]
+// 首次 append/render 前独占配置：预留环境轨且语音初始空闲，不塞假 PCM，不启动硬件。
+pub unsafe extern "C" fn cb_player_prepare_conversation(
+    player: *mut Player,
+    background_continuous: u32,
+) -> i32 {
+    let Some(player) = (unsafe { player.as_mut() }) else {
+        return -1;
+    };
+    if background_continuous > 1 {
+        return -1;
+    }
+    if player.render_started.load(Ordering::Acquire)
+        || player.published.load(Ordering::Acquire) != 0
+        || player.finished.load(Ordering::Acquire)
+        || player.cancelled.load(Ordering::Acquire)
+        || player.environment.is_some()
+        || player.continuous
+    {
+        return -2;
+    }
+    let Some(environment) = Environment::dormant() else {
+        return -1;
+    };
+    player.environment = Some(environment);
+    player.conversation = true;
+    player.background_continuous = background_continuous != 0;
+    player.continuous = true;
+    player.drained.store(true, Ordering::Release);
+    0
+}
+
+#[unsafe(no_mangle)]
+// 只终止本句：原生层先撤销该句代次/生产者，render 确认排空后才可 next_speech。
+pub unsafe extern "C" fn cb_player_abort_speech(player: *const Player) -> i32 {
+    let Some(player) = (unsafe { player.as_ref() }) else {
+        return -1;
+    };
+    if !player.conversation || player.cancelled.load(Ordering::Acquire) {
+        return -2;
+    }
+    player.speech_aborted.store(true, Ordering::Release);
+    0
+}
+
+#[unsafe(no_mangle)]
+// 同一控制线程调用：0 阻断环境，1 开启新代。重开前必须关闭旧输入并完成 flush 交接。
+pub unsafe extern "C" fn cb_player_set_environment_active(
+    player: *const Player,
+    active: u32,
+) -> i32 {
+    let Some(player) = (unsafe { player.as_ref() }) else {
+        return -1;
+    };
+    if active > 1 {
+        return -1;
+    }
+    if !player.conversation || player.cancelled.load(Ordering::Acquire) {
+        return -2;
+    }
+    let environment = player.environment.as_ref().unwrap();
+    if active == 0 {
+        environment.disable();
+        0
+    } else {
+        environment.activate()
+    }
+}
+
+#[unsafe(no_mangle)]
+// 旧输入回调退出后串行调用；可与输出并发。非零返回不能当成已经安全关闭。
+pub unsafe extern "C" fn cb_player_flush_environment(player: *const Player) -> i32 {
+    let Some(player) = (unsafe { player.as_ref() }) else {
+        return -1;
+    };
+    if !player.conversation || player.cancelled.load(Ordering::Acquire) {
+        return -2;
+    }
+    player.environment.as_ref().unwrap().request_flush()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cb_player_environment_flushed(player: *const Player) -> u32 {
+    unsafe { player.as_ref() }
+        .and_then(|player| player.environment.as_ref())
+        .map_or(0, |environment| u32::from(environment.flushed()))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cb_player_environment_epoch(player: *const Player) -> u32 {
+    unsafe { player.as_ref() }
+        .filter(|player| !player.cancelled.load(Ordering::Acquire))
+        .and_then(|player| player.environment.as_ref())
+        .map_or(0, Environment::epoch)
 }
 
 #[unsafe(no_mangle)]
@@ -269,6 +400,8 @@ pub unsafe extern "C" fn cb_player_next_speech(player: *const Player) -> i32 {
     player.position.store(0, Ordering::Relaxed);
     player.finished.store(false, Ordering::Relaxed);
     player.underrun_frames.store(0, Ordering::Relaxed);
+    player.speech_aborted.store(false, Ordering::Relaxed);
+    player.speech_serial.fetch_add(1, Ordering::Relaxed);
     player.drained.store(false, Ordering::Release);
     0
 }
@@ -412,6 +545,26 @@ pub unsafe extern "C" fn cb_player_push_environment(
     frames: u32,
     channels: u32,
 ) -> i32 {
+    unsafe {
+        cb_player_push_environment_epoch(
+            player,
+            source,
+            frames,
+            channels,
+            cb_player_environment_epoch(player),
+        )
+    }
+}
+
+#[unsafe(no_mangle)]
+// 输入实例创建时冻结 epoch；旧实例不能把迟到 PCM 混进新一次开麦。其余指针契约同上。
+pub unsafe extern "C" fn cb_player_push_environment_epoch(
+    player: *const Player,
+    source: *const f32,
+    frames: u32,
+    channels: u32,
+    epoch: u32,
+) -> i32 {
     let Some(player) = (unsafe { player.as_ref() }) else {
         return -1;
     };
@@ -429,9 +582,10 @@ pub unsafe extern "C" fn cb_player_push_environment(
     let Some(environment) = &player.environment else {
         return -2;
     };
-    environment.push(
+    environment.push_epoch(
         unsafe { std::slice::from_raw_parts(source, (frames * channels) as usize) },
         channels as usize,
+        epoch,
     )
 }
 
@@ -486,6 +640,7 @@ pub unsafe extern "C" fn cb_player_finish(player: *const Player) -> i32 {
     };
     if player.cancelled.load(Ordering::Acquire)
         || player.finished.load(Ordering::Acquire)
+        || player.speech_aborted.load(Ordering::Acquire)
         || player.published.load(Ordering::Acquire) == 0
     {
         return -2;

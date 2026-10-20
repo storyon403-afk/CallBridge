@@ -19,11 +19,14 @@ mkdir -p "$app/Contents/MacOS"
 
 # offline 禁止构建时下载依赖；release 生成优化后的静态库。
 cargo build --offline --release
+cargo build --offline --release --manifest-path pocket/Cargo.toml
+cp target/release/callbridge-pocket "$app/Contents/MacOS/callbridge-pocket"
+codesign --force --sign - "$app/Contents/MacOS/callbridge-pocket"
 # ARC 管理原生对象，blocks 支持系统异步回调，Werror 防止编译警告悄悄混入构建。
 # dead_strip 去掉未引用代码；这里只链接 App 需要的原生模块，不加入诊断回读器。
 xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
     -isysroot "$sdk_root" -mmacosx-version-min=26.0 \
-    native/app.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/speech_job.m native/stream_converter.m native/sender.c native/microphone.m target/release/libcallbridge_abi_probe.a \
+    native/app.m native/panel_ui.m native/settings.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/pocket_provider.m native/plan_task.m native/speech_job.m native/stream_converter.m native/sender.c native/microphone.m target/release/libcallbridge_abi_probe.a \
     -framework AppKit -framework AVFoundation -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
     -Wl,-dead_strip -o "$app/Contents/MacOS/CallBridge"
 # 标准 .app 目录必须含可执行文件和 Info.plist；签名应在这些文件就位之后进行。

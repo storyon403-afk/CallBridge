@@ -5,8 +5,10 @@
 两块设备的时钟不完全相同：本版缺帧补零、满队列丢新块、积压时丢旧帧并计数，限制延迟增长。
 这不是高保真异步重采样或回声消除。原生层只接收 48 kHz，其他采样率明确拒绝。
 环境音包括用户自己的说话声；本模块不识别人声，不保存文件，不上传素材。
+独立关麦先关门控，原生侧停止旧生产者后请求消费者排空；收到排空确认才能用新代次开麦。
+因此旧/新采集实例不会并行写同一条队列，环境关闭也不触碰 TTS 的播放位置。
 */
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 const CAPACITY: u32 = 16_384;
 const LATENCY_LIMIT: u32 = 2_048;
@@ -21,6 +23,11 @@ pub(crate) struct Environment {
     dropped: AtomicU32,
     underruns: AtomicU32,
     limited: AtomicU32,
+    active_epoch: AtomicU32,
+    last_epoch: AtomicU32,
+    flush_requested: AtomicU32,
+    flush_completed: AtomicU32,
+    flush_required: AtomicBool,
 }
 
 impl Environment {
@@ -41,7 +48,57 @@ impl Environment {
             dropped: AtomicU32::new(0),
             underruns: AtomicU32::new(0),
             limited: AtomicU32::new(0),
+            active_epoch: AtomicU32::new(1),
+            last_epoch: AtomicU32::new(1),
+            flush_requested: AtomicU32::new(0),
+            flush_completed: AtomicU32::new(0),
+            flush_required: AtomicBool::new(false),
         })
+    }
+
+    // 预留队列不代表开麦。只有控制线程可操作开关，设备回调只持有一次开启的代次。
+    pub(crate) fn dormant() -> Option<Self> {
+        let environment = Self::new(0.25)?;
+        environment.disable();
+        environment.flush_required.store(false, Ordering::Relaxed);
+        Some(environment)
+    }
+
+    pub(crate) fn epoch(&self) -> u32 {
+        self.active_epoch.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn activate(&self) -> i32 {
+        if self.epoch() != 0 || !self.flushed() || self.flush_required.load(Ordering::Acquire) {
+            return -2;
+        }
+        let Some(next) = self.last_epoch.load(Ordering::Relaxed).checked_add(1) else {
+            return -2;
+        };
+        self.last_epoch.store(next, Ordering::Relaxed);
+        self.active_epoch.store(next, Ordering::Release);
+        0
+    }
+
+    pub(crate) fn disable(&self) {
+        self.active_epoch.store(0, Ordering::Release);
+        self.flush_required.store(true, Ordering::Release);
+    }
+
+    // 必须先停止并释放旧输入回调，再请求排空。控制线程绝不修改消费者的 read 游标。
+    pub(crate) fn request_flush(&self) -> i32 {
+        if self.epoch() != 0 {
+            return -2;
+        }
+        let Some(next) = self.flush_requested.load(Ordering::Relaxed).checked_add(1) else {
+            return -2;
+        };
+        self.flush_requested.store(next, Ordering::Release);
+        0
+    }
+
+    pub(crate) fn flushed(&self) -> bool {
+        self.flush_completed.load(Ordering::Acquire) == self.flush_requested.load(Ordering::Acquire)
     }
 
     pub(crate) fn set_gain(&self, gain: f32) -> i32 {
@@ -53,7 +110,15 @@ impl Environment {
     }
 
     // 只允许一个串行输入回调。整块校验，失败不发布；双声道平均为 mono，避免相加放大。
+    #[cfg(test)]
     pub(crate) fn push(&self, source: &[f32], channels: usize) -> i32 {
+        self.push_epoch(source, channels, self.epoch())
+    }
+
+    pub(crate) fn push_epoch(&self, source: &[f32], channels: usize, epoch: u32) -> i32 {
+        if epoch == 0 || self.epoch() != epoch {
+            return -2;
+        }
         if source
             .iter()
             .any(|sample| !sample.is_finite() || sample.abs() > 1.0)
@@ -90,6 +155,21 @@ impl Environment {
         ending: bool,
         clip: bool,
     ) {
+        let epoch = self.epoch();
+        if epoch == 0 {
+            let requested = self.flush_requested.load(Ordering::Acquire);
+            if requested != self.flush_completed.load(Ordering::Relaxed) {
+                // 旧生产者已退出，因此此处的 written 是本代最终位置；O(1) 丢弃，不遍历整环。
+                self.read
+                    .store(self.written.load(Ordering::Acquire), Ordering::Release);
+                self.rendered_gain.store(0, Ordering::Relaxed);
+                self.ending_frames.store(0, Ordering::Relaxed);
+                self.flush_required.store(false, Ordering::Release);
+                // 最后发布交接完成；新输入在这之后才可启动，不需要复制或重建队列。
+                self.flush_completed.store(requested, Ordering::Release);
+            }
+            return;
+        }
         let mut read = self.read.load(Ordering::Relaxed);
         let written = self.written.load(Ordering::Acquire);
         let frames = (output.len() / channels) as u32;
@@ -123,7 +203,13 @@ impl Environment {
             } else {
                 0.0
             };
-            let sum = frame[0] + environment * gain;
+            // 关麦只去掉环境，不覆盖已经写入的 TTS；已交给设备的音频不能撤回。
+            let sum = frame[0]
+                + if self.epoch() == epoch {
+                    environment * gain
+                } else {
+                    0.0
+                };
             if clip && sum.abs() > 0.999_999 {
                 limited += 1;
             }

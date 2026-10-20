@@ -11,7 +11,7 @@ xcuserdata/
 
 # configuration of env
 .env
-.env.*s
+.env.*
 !.env.example
 *.p12
 *.mobileprovision
@@ -29,3 +29,18 @@ AGENTS.md
 
 # prosody engine
 ProsodyEngine.md
+
+# virtual avatar design
+VirtualAvatar.md
+
+# the adding ideas about this project
+MoreIdeas.md
+
+# the personal audio engine
+PASEngine.md
+
+# UI design
+UI.md
+
+# question
+quesiton.md

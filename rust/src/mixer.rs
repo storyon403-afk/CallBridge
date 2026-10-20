@@ -67,6 +67,14 @@ impl Background {
         self.paused.store(paused, Ordering::Release);
     }
 
+    // 仅唯一 render 调用者在新句交接时重置随句背景；控制线程不得直接改播放游标。
+    pub(crate) fn restart(&self) {
+        self.position.store(0, Ordering::Relaxed);
+        self.rendered_gain.store(0, Ordering::Relaxed);
+        self.ending_frames.store(0, Ordering::Relaxed);
+        self.pause_frames.store(0, Ordering::Relaxed);
+    }
+
     // destination 已由 Player 校验并填好人声；只有同一个串行 render 调用者可进入这里。
     pub(crate) fn mix(
         &self,
