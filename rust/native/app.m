@@ -10,6 +10,7 @@
 
 默认入口启动窗口；带 --*-smoke 参数时执行指定诊断。物理试听和虚拟发送分别要求显式确认。
 */
+#import "localization.h"
 #import <AppKit/AppKit.h>
 #import <AVFAudio/AVFAudio.h>
 #import "speech_job.h"
@@ -20,26 +21,29 @@
 #import "preview_devices.h"
 #import "pocket_provider.h"
 #import "personal_voice.h"
+#import "avatar_panel.h"
+#import "avatar_plugin.h"
 #import "microphone.h"
 #include "app_core.h"
 #import "theme.h"
 #import "panel_ui.h"
+#import "window_workspace.h"
 #import "settings.h"
 #include <CoreAudio/CoreAudio.h>
 #include <stdio.h>
 
 // 把底层数字错误转成可读提示；未单独映射的 OSStatus 仍显示原值，便于定位。
 static NSString *sender_error(int32_t status) {
-    if (status == -21001) return @"真实麦克风不可用或类型不支持；不会改用默认输入或虚拟麦克风。";
-    if (status == -21002) return @"环境输入仅支持当前已为 48 kHz、单流 1/2 声道的内建/USB 麦克风；不会修改设备格式。";
-    if (status == -21003) return @"未获得麦克风权限。请在系统隐私设置允许 CallBridge，再重新启用环境音。";
-    if (status == -21004) return @"环境音采集格式或缓冲异常，已停止输出。";
-    if (status == -20001) return @"所选设备未安装、已离线或身份不符；不会切换到其他设备。";
-    if (status == -20002) return @"所选设备格式不符：需要 48 kHz，声道数须与所选版本一致。";
-    if (status == -20003) return @"音频回调格式异常，已停止发送。";
-    if (status == -20005) return @"输入关闭状态验证失败，拒绝启动。";
-    if (status == -20006) return @"试听只接受内建或 USB 物理输出，不允许虚拟、聚合或多输出设备。";
-    return [NSString stringWithFormat:@"音频设备错误：%d。已停止，请刷新设备。", status];
+    if (status == -21001) return CBL(@"真实麦克风不可用或类型不支持；不会改用默认输入或虚拟麦克风。");
+    if (status == -21002) return CBL(@"环境输入仅支持当前已为 48 kHz、单流 1/2 声道的内建/USB 麦克风；不会修改设备格式。");
+    if (status == -21003) return CBL(@"未获得麦克风权限。请在系统隐私设置允许 CallBridge，再重新启用环境音。");
+    if (status == -21004) return CBL(@"环境音采集格式或缓冲异常，已停止输出。");
+    if (status == -20001) return CBL(@"所选设备未安装、已离线或身份不符；不会切换到其他设备。");
+    if (status == -20002) return CBL(@"所选设备格式不符：需要 48 kHz，声道数须与所选版本一致。");
+    if (status == -20003) return CBL(@"音频回调格式异常，已停止发送。");
+    if (status == -20005) return CBL(@"输入关闭状态验证失败，拒绝启动。");
+    if (status == -20006) return CBL(@"试听只接受内建或 USB 物理输出，不允许虚拟、聚合或多输出设备。");
+    return [NSString stringWithFormat:CBL(@"音频设备错误：%d。已停止，请刷新设备。"), status];
 }
 
 // 诊断统一输出 JSON，便于保存/比较；返回值同时作为进程退出码。
@@ -401,6 +405,7 @@ static int virtual_route_report(void) {
 @property(nonatomic, strong) NSButton *pocketUseButton;
 @property(nonatomic, strong) NSTextField *pocketStatus;
 @property(nonatomic, strong) CBPersonalVoiceController *personalController;
+@property(nonatomic, strong) CBAvatarController *avatarController;
 // 只记录本次用户命令的输出目的；播放状态仍只由 Rust session 管理。
 @property(nonatomic, copy) NSString *previewUID;
 @property(nonatomic, strong) NSSlider *volume;
@@ -435,6 +440,8 @@ static int virtual_route_report(void) {
 @property(nonatomic) float backgroundGain;
 @property(nonatomic, strong) NSMenuItem *backgroundMenuItem;
 @property(nonatomic, strong) NSMenuItem *backgroundInfo;
+// 状态项由应用持有，关闭面板后仍保留入口；退出时交还系统状态栏。
+@property(nonatomic, strong) NSStatusItem *statusItem;
 @property(nonatomic, strong) NSButton *backgroundImportButton;
 @property(nonatomic, strong) NSButton *backgroundToggleButton;
 @property(nonatomic, strong) NSButton *backgroundLoopButton;
@@ -450,6 +457,7 @@ static int virtual_route_report(void) {
 @property(nonatomic) BOOL cleanupFailed;
 @property(nonatomic) BOOL uiSmoke;
 @property(nonatomic) BOOL uiCapture;
+@property(nonatomic) BOOL uiLanguageCheck;
 @property(nonatomic) BOOL attemptedEnvironmentStartInSmoke;
 @property(nonatomic) BOOL attemptedBackgroundStartInSmoke;
 @property(nonatomic) uint32_t lastPosition;
@@ -469,7 +477,7 @@ static int virtual_route_report(void) {
         NSString *error = nil;
         BOOL saved = CBWriteSettings(snapshot, CBSettingsURL(), &error);
         if (!saved) dispatch_async(dispatch_get_main_queue(), ^{
-            if (!self.terminating) self.status.stringValue = error;
+            if (!self.terminating) self.status.stringValue = CBL(error);
         });
     });
 }
@@ -482,55 +490,18 @@ static int virtual_route_report(void) {
     self.settings = normalized;
     [self saveSettings];
 }
-- (NSDictionary<NSString *, NSWindow *> *)settingsWindows {
-    return @{@"main": self.window, @"text": self.textWindow, @"audio": self.audioWindow, @"mix": self.mixWindow};
-}
-- (void)rememberWindowFrames {
-    if (!self.settingsReady || self.uiSmoke) return;
-    NSMutableDictionary *frames = [NSMutableDictionary dictionary];
-    for (NSString *key in self.settingsWindows) {
-        NSRect frame = self.settingsWindows[key].frame;
-        frames[key] = @[@(frame.origin.x), @(frame.origin.y), @(frame.size.width), @(frame.size.height)];
-    }
-    [self rememberSetting:@"window_frames" value:frames];
-}
-- (void)scheduleWindowSave {
-    if (!self.settingsReady || self.uiSmoke) return;
-    // 拖动产生大量通知；只保存最终位置，关闭/退出时则立即提交。
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(rememberWindowFrames) object:nil];
-    [self performSelector:@selector(rememberWindowFrames) withObject:nil afterDelay:0.25];
-}
-- (void)windowDidMove:(NSNotification *)notification {
-    (void)notification;
-    [self scheduleWindowSave];
-}
 - (void)applySettings {
+    self.avatarController.target=self.settings[@"video_target"];
+    self.avatarController.composition=self.settings[@"video_composition"];
     self.backgroundGain = [self.settings[@"background_gain"] floatValue];
     self.environmentGain = [self.settings[@"environment_gain"] floatValue];
     self.backgroundLoop = [self.settings[@"background_loop"] boolValue];
     self.volume.doubleValue = [self.settings[@"speech_gain"] doubleValue];
-    self.volumeLabel.stringValue = [NSString stringWithFormat:@"人声 %.0f%%", self.volume.doubleValue * 100];
-    self.pinButton.state = [self.settings[@"pin_text"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
-    self.textWindow.level = self.pinButton.state == NSControlStateValueOn ? NSFloatingWindowLevel : NSNormalWindowLevel;
+    self.volumeLabel.stringValue = [NSString stringWithFormat:CBL(@"人声 %.0f%%"), self.volume.doubleValue * 100];
+    // 窗口布局和置顶仅属于本次会话；不恢复旧 window_frames / pin_text。
+    self.pinButton.state = CBWorkspace.shared.panelsOnTop ? NSControlStateValueOn : NSControlStateValueOff;
     for (NSMenuItem *item in self.sendDevices.itemArray)
         if ([item.representedObject isEqual:self.settings[@"send_uid"]]) [self.sendDevices selectItem:item];
-    for (NSString *key in self.settings[@"window_frames"]) {
-        NSWindow *window = self.settingsWindows[key];
-        NSArray *values = self.settings[@"window_frames"][key];
-        NSRect frame = NSMakeRect([values[0] doubleValue], [values[1] doubleValue],
-            [values[2] doubleValue], [values[3] doubleValue]);
-        NSScreen *screen = NSScreen.mainScreen;
-        for (NSScreen *candidate in NSScreen.screens)
-            if (NSIntersectsRect(frame, candidate.visibleFrame)) { screen = candidate; break; }
-        if (screen == nil) continue;
-        NSRect visible = screen.visibleFrame;
-        // 外接显示器移除后，将窗口限制到当前可见区域，不能恢复到屏幕外而找不到面板。
-        frame.size.width = MIN(visible.size.width, MAX(window.minSize.width, frame.size.width));
-        frame.size.height = MIN(visible.size.height, MAX(window.minSize.height, frame.size.height));
-        frame.origin.x = MAX(NSMinX(visible), MIN(frame.origin.x, NSMaxX(visible) - frame.size.width));
-        frame.origin.y = MAX(NSMinY(visible), MIN(frame.origin.y, NSMaxY(visible) - frame.size.height));
-        [window setFrame:frame display:NO];
-    }
     // 恢复配置不触发 target/action，尤其不能重用上次的发送或开麦确认。
     self.armButton.state = NSControlStateValueOff;
     self.backgroundEnabled = NO;
@@ -539,7 +510,7 @@ static int virtual_route_report(void) {
 }
 - (void)restoreSettings {
     self.loadingBackground = YES;
-    self.status.stringValue = @"正在恢复上次设置…";
+    self.status.stringValue = CBL(@"正在恢复上次设置…");
     [self updateControls];
     dispatch_async(self.settingsQueue, ^{
         NSString *warning = nil;
@@ -550,7 +521,7 @@ static int virtual_route_report(void) {
         if (backgroundPath.length > 0) {
             NSString *error = nil;
             pcm = CBLoadBackground([NSURL fileURLWithPath:backgroundPath], &error);
-            if (pcm == nil) warning = [NSString stringWithFormat:@"背景未恢复：%@ 原引用已保留，可重新导入或移除。", error];
+            if (pcm == nil) warning = [NSString stringWithFormat:CBL(@"背景未恢复：%@ 原引用已保留，可重新导入或移除。"), CBL(error)];
         }
         dispatch_async(dispatch_get_main_queue(), ^{
             if (self.terminating) return;
@@ -560,16 +531,16 @@ static int virtual_route_report(void) {
             if (backgroundPath.length > 0) {
                 self.backgroundInfo.toolTip = backgroundPath.lastPathComponent;
                 self.backgroundInfo.title = pcm != nil
-                    ? [NSString stringWithFormat:@"已恢复 %.1f 秒素材", pcm.length / (48000.0 * sizeof(float))]
-                    : @"背景文件不可用";
+                    ? [NSString stringWithFormat:CBL(@"已恢复 %.1f 秒素材"), pcm.length / (48000.0 * sizeof(float))]
+                    : CBL(@"背景文件不可用");
             }
             [self applySettings];
             self.loadingBackground = NO;
             [self refresh:nil];
             self.settingsReady = YES;
-            if (restoreWarning != nil) self.status.stringValue = restoreWarning;
+            if (restoreWarning != nil) self.status.stringValue = CBL(restoreWarning);
             else if (self.deviceAvailable && self.voices.selectedItem.representedObject != nil)
-                self.status.stringValue = @"设置已恢复 · 播放背景、开麦或发送文字仍由你主动开启。";
+                self.status.stringValue = CBL(@"设置已恢复 · 播放背景、开麦或发送文字仍由你主动开启。");
             [self updateControls];
         });
     });
@@ -586,18 +557,16 @@ static int virtual_route_report(void) {
         if ([item.representedObject isEqual:uid]) { [menu selectItem:item]; return; }
     }
     // 保留失联设备的意图，但占位项没有可执行 UID；刷新后同 UID 回来才重新选中。
-    [menu addItemWithTitle:@"上次设备不可用，请连接后刷新"];
+    [menu addItemWithTitle:CBL(@"上次设备不可用，请连接后刷新")];
     menu.lastItem.enabled = NO;
     menu.lastItem.toolTip = uid;
     [menu selectItem:menu.lastItem];
 }
 - (void)showMain:(id)sender {
-    (void)sender;
-    [self.window makeKeyAndOrderFront:nil];
+    CBShowWindow(self.window, sender);
 }
 - (void)showText:(id)sender {
-    (void)sender;
-    [self.textWindow makeKeyAndOrderFront:nil];
+    CBShowWindow(self.textWindow, sender);
     [self.textWindow makeFirstResponder:self.editor];
 }
 - (void)toggleText:(id)sender {
@@ -606,8 +575,7 @@ static int virtual_route_report(void) {
     else { [self.textWindow deminiaturize:nil]; [self showText:nil]; }
 }
 - (void)showAudio:(id)sender {
-    (void)sender;
-    [self.audioWindow makeKeyAndOrderFront:nil];
+    CBShowWindow(self.audioWindow, sender);
     [self refreshPocket];
 }
 - (void)refreshPocket {
@@ -618,30 +586,33 @@ static int virtual_route_report(void) {
         if (!controller || controller.terminating) return;
         [controller refresh:nil];
         [controller updateControls];
-        if (error) controller.status.stringValue=[@"Pocket 校验失败：" stringByAppendingString:error];
+        if (error) controller.status.stringValue=[CBL(@"Pocket 校验失败：") stringByAppendingString:CBL(error)];
     });
     [self updateControls];
 }
 - (void)showMix:(id)sender {
-    (void)sender;
-    [self.mixWindow makeKeyAndOrderFront:nil];
+    CBShowWindow(self.mixWindow, sender);
 }
 - (void)showPlaceholder:(NSButton *)sender {
     // 预留模块只解释能力边界，不请求摄像头、下载模型或假装已有引擎。
     if (self.placeholderWindow == nil) {
-        self.placeholderWindow = CBUtilityWindow(@"扩展", NSMakeSize(360, 180), NSMakeSize(360, 180), NO);
+        self.placeholderWindow = CBUtilityWindow(CBL(@"扩展"), NSMakeSize(360, 180), NSMakeSize(360, 180), NO);
         self.placeholderWindow.delegate = self;
     }
     self.placeholderWindow.title = sender.title;
     self.placeholderWindow.contentView = [[NSView alloc] initWithFrame:self.placeholderWindow.contentView.bounds];
     NSTextField *title = [NSTextField labelWithString:sender.title];
     title.font = CBHeadingFont();
-    NSTextField *message = [NSTextField wrappingLabelWithString:[sender.title isEqual:@"画面处理"]
-        ? @"虚拟形象与视频背景的预留入口。\n当前不会开启摄像头。"
-        : @"留给下一种可能。\n当前没有可启用的功能。"];
+    NSTextField *message = [NSTextField wrappingLabelWithString:CBL(@"留给下一种可能。\n当前没有可启用的功能。")];
     message.textColor = CBSecondaryColor();
     CBInstallColumn(self.placeholderWindow, CBColumn(@[title, message]), NO);
-    [self.placeholderWindow makeKeyAndOrderFront:nil];
+    CBShowWindow(self.placeholderWindow, sender);
+}
+- (void)showVideo:(id)sender {
+    (void)sender;
+    if (!self.settingsReady && !self.uiSmoke) return;
+    CBShowWindow(self.avatarController.window,sender);
+    [self.avatarController present];
 }
 - (void)showPersonal:(id)sender {
     (void)sender;
@@ -653,7 +624,7 @@ static int virtual_route_report(void) {
             BOOL allowed=controller && controller.settingsReady && controller->_session.state==0 && controller->_sender==NULL
                 && !controller.loadingBackground && !controller.requestingMicrophone && !controller.requestingBackground
                 && !controller.cleanupFailed && !controller.terminating;
-            if (!allowed) controller.status.stringValue=@"请先停止当前音频操作，再准备个人音色";
+            if (!allowed) controller.status.stringValue=CBL(@"请先停止当前音频操作，再准备个人音色");
             return allowed;
         };
         self.personalController.stateChanged=^{ [weakSelf updateControls]; };
@@ -663,9 +634,10 @@ static int virtual_route_report(void) {
             [controller rememberSetting:@"voice_id" value:identifier];
             [controller refresh:nil];
             [controller updateControls];
-            controller.status.stringValue=@"个人音色已选择 · 可试听或输入文字发送";
+            controller.status.stringValue=CBL(@"个人音色已选择 · 可试听或输入文字发送");
         };
     }
+    CBShowWindow(self.personalController.window,sender);
     [self.personalController present];
 }
 - (NSTextField *)statusMirror {
@@ -677,12 +649,11 @@ static int virtual_route_report(void) {
     return label;
 }
 - (NSButton *)stopMirror {
-    NSButton *button = [NSButton buttonWithTitle:@"停止全部" target:self action:@selector(stop:)];
+    NSButton *button = [NSButton buttonWithTitle:CBL(@"停止全部") target:self action:@selector(stop:)];
     [button bind:NSEnabledBinding toObject:self.stopButton withKeyPath:@"enabled" options:nil];
     return button;
 }
 - (void)windowDidResize:(NSNotification *)notification {
-    [self scheduleWindowSave];
     if (notification.object != self.window) return;
     [self.window.contentView layoutSubtreeIfNeeded];
     [self.moduleGrid fitWidth:self.moduleScroll.contentSize.width];
@@ -703,6 +674,7 @@ static int virtual_route_report(void) {
     return NO;
 }
 - (void)updateControls {
+    [CBWorkspace.shared refreshActivity];
     // 从唯一会话状态推导按钮状态，避免界面另存一套互相矛盾的“正在发送”标志。
     // 启动恢复期间不接受会被旧快照覆盖的音量/置顶修改；恢复完成后再开放。
     self.volume.enabled = self.settingsReady || self.uiSmoke;
@@ -718,26 +690,26 @@ static int virtual_route_report(void) {
     NSString *voiceIdentifier=((CBVoiceDescriptor *)self.voices.selectedItem.representedObject).identifier;
     BOOL pocket = CBIsPocketVoice(voiceIdentifier);
     BOOL checking=CBPocketChecking(), busy=CBPocketBusy(), ready=CBPocketReady();
-    self.pocketStatus.stringValue = checking ? @"Pocket 中文 · 检查中"
-        : busy ? @"Pocket 中文 · 下载中"
-        : ready ? (pocket ? @"Pocket 中文 · 使用中" : @"Pocket 中文 · 已下载")
-        : CBPocketProblem() ? @"Pocket 中文 · 需检查" : @"Pocket 中文 · 未下载";
-    self.pocketStatus.toolTip=CBPocketProblem() ?: @"本地中文引擎；选择后使用模型原生韵律。";
-    self.pocketButton.title = checking ? @"检查中…" : busy ? @"取消下载" : ready ? @"已下载" : @"下载 · 161 MB";
+    self.pocketStatus.stringValue = checking ? CBL(@"Pocket 中文 · 检查中")
+        : busy ? CBL(@"Pocket 中文 · 下载中")
+        : ready ? (pocket ? CBL(@"Pocket 中文 · 使用中") : CBL(@"Pocket 中文 · 已下载"))
+        : CBPocketProblem() ? CBL(@"Pocket 中文 · 需检查") : CBL(@"Pocket 中文 · 未下载");
+    self.pocketStatus.toolTip=CBPocketProblem() ?: CBL(@"本地中文引擎；选择后使用模型原生韵律。");
+    self.pocketButton.title = checking ? CBL(@"检查中…") : busy ? CBL(@"取消下载") : ready ? CBL(@"已下载") : CBL(@"下载 · 161 MB");
     self.pocketButton.enabled = !checking && (busy || (!ready && !CBPocketProblem() && idle && _sender == NULL && !self.cleanupFailed));
-    self.pocketUseButton.title = pocket ? @"使用中" : @"使用 Pocket";
+    self.pocketUseButton.title = pocket ? CBL(@"使用中") : CBL(@"使用 Pocket");
     self.pocketUseButton.enabled = ready && !checking && !busy && !pocket && idle && _sender == NULL && !self.cleanupFailed;
-    self.previewButton.title = [voiceIdentifier isEqual:CBPocketIdentifier()] ? @"试听示例音频" : @"试听音色";
+    self.previewButton.title = [voiceIdentifier isEqual:CBPocketIdentifier()] ? CBL(@"试听示例音频") : CBL(@"试听音色");
     self.previewDevices.enabled = idle && _sender == NULL;
     self.sendDevices.enabled = idle && _sender == NULL && !self.cleanupFailed;
     self.previewButton.enabled = idle && _sender == NULL && !self.environmentEnabled && !self.cleanupFailed && self.voices.selectedItem.representedObject != nil
         && self.previewDevices.selectedItem.representedObject != nil;
     self.armButton.enabled = !self.loadingBackground && !self.requestingMicrophone
         && !self.requestingBackground && (idle || self.previewUID == nil);
-    NSString *mix = self.environmentEnabled ? @"（含真实环境，持续）"
-        : (self.backgroundEnabled ? @"（含背景音，持续）" : @"");
-    self.armButton.title = [NSString stringWithFormat:@"允许发送到 %@%@", self.sendDevices.titleOfSelectedItem, mix];
-    self.backgroundMenuItem.title = self.backgroundEnabled ? @"背景音 · 已启用" : @"背景音";
+    NSString *mix = self.environmentEnabled ? CBL(@"（含真实环境，持续）")
+        : (self.backgroundEnabled ? CBL(@"（含背景音，持续）") : @"");
+    self.armButton.title = [NSString stringWithFormat:CBL(@"允许发送到 %@%@"), self.sendDevices.titleOfSelectedItem, mix];
+    self.backgroundMenuItem.title = self.backgroundEnabled ? CBL(@"背景音 · 已启用") : CBL(@"背景音");
     // 面板与菜单只展示同一份素材/模式，不另建播放状态；所有入口共用下面的动作方法。
     BOOL canConfigure = idle && _sender == NULL && !self.cleanupFailed;
     self.microphoneDevices.enabled = canConfigure && !self.environmentEnabled;
@@ -745,34 +717,34 @@ static int virtual_route_report(void) {
         && !self.loadingBackground && self.previewUID == nil
         && (self.environmentEnabled || (self.deviceAvailable && self.microphoneDevices.selectedItem.representedObject != nil));
     self.environmentToggle.state = self.environmentEnabled ? NSControlStateValueOn : NSControlStateValueOff;
-    self.environmentToggle.title = self.closingEnvironment ? @"环境·关闭中" : (_microphone != NULL ? @"环境·采集中" : @"混入环境");
+    self.environmentToggle.title = self.closingEnvironment ? CBL(@"环境·关闭中") : (_microphone != NULL ? CBL(@"环境·采集中") : CBL(@"混入环境"));
     self.environmentVolume.enabled = self.environmentEnabled && !self.cleanupFailed && !self.requestingMicrophone;
     self.environmentVolume.doubleValue = self.environmentGain;
-    self.environmentVolumeLabel.stringValue = [NSString stringWithFormat:@"环境 %.0f%%", self.environmentGain * 100];
+    self.environmentVolumeLabel.stringValue = [NSString stringWithFormat:CBL(@"环境 %.0f%%"), self.environmentGain * 100];
     self.backgroundImportButton.enabled = canConfigure;
     self.backgroundClearButton.enabled = canConfigure && (self.backgroundPCM != nil || [self.settings[@"background_path"] length] > 0);
     // 素材在创建 sender 时已预装，启停仅发原子暂停命令，朗读或开麦期间也可独立控制。
     self.backgroundToggleButton.enabled = !self.personalController.busy && self.backgroundPCM != nil && !self.cleanupFailed
         && !self.loadingBackground && !self.requestingMicrophone
         && !self.requestingBackground && self.previewUID == nil && (self.backgroundEnabled || self.deviceAvailable);
-    self.backgroundToggleButton.title = self.backgroundEnabled ? @"背景·已开启" : @"播放背景";
+    self.backgroundToggleButton.title = self.backgroundEnabled ? CBL(@"背景·已开启") : CBL(@"播放背景");
     self.backgroundLoopButton.enabled = canConfigure && self.backgroundPCM != nil;
     self.backgroundPauseButton.enabled = self.backgroundEnabled && self.backgroundPCM != nil
         && !self.loadingBackground && !self.cleanupFailed;
-    self.backgroundPauseButton.title = self.backgroundPaused ? @"继续背景" : @"暂停背景";
+    self.backgroundPauseButton.title = self.backgroundPaused ? CBL(@"继续背景") : CBL(@"暂停背景");
     self.backgroundToggleButton.state = self.backgroundEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     self.backgroundLoopButton.state = self.backgroundLoop ? NSControlStateValueOn : NSControlStateValueOff;
     self.backgroundVolume.enabled = self.backgroundEnabled && !self.loadingBackground && !self.cleanupFailed;
     self.backgroundVolume.doubleValue = self.backgroundGain;
-    self.backgroundVolumeLabel.stringValue = [NSString stringWithFormat:@"背景 %.0f%%", self.backgroundGain * 100];
-    self.backgroundFileLabel.stringValue = self.loadingBackground ? @"正在导入…"
-        : (self.backgroundPCM != nil ? (self.backgroundInfo.toolTip ?: @"已导入素材")
-            : ([self.settings[@"background_path"] length] > 0 ? @"背景文件不可用，请重新导入" : @"未导入 WAV"));
-    self.backgroundFileLabel.toolTip = self.backgroundPCM != nil ? self.backgroundInfo.toolTip : @"只加载本地文件，不播放、不录音";
-    self.routeLabel.stringValue = self.deviceAvailable ? @"本地设备就绪 · 通话接收未确认" : @"本地设备不可用 · 通话接收未确认";
+    self.backgroundVolumeLabel.stringValue = [NSString stringWithFormat:CBL(@"背景 %.0f%%"), self.backgroundGain * 100];
+    self.backgroundFileLabel.stringValue = self.loadingBackground ? CBL(@"正在导入…")
+        : (self.backgroundPCM != nil ? (self.backgroundInfo.toolTip ?: CBL(@"已导入素材"))
+            : ([self.settings[@"background_path"] length] > 0 ? CBL(@"背景文件不可用，请重新导入") : CBL(@"未导入 WAV")));
+    self.backgroundFileLabel.toolTip = self.backgroundPCM != nil ? self.backgroundInfo.toolTip : CBL(@"只加载本地文件，不播放、不录音");
+    self.routeLabel.stringValue = self.deviceAvailable ? CBL(@"本地设备就绪 · 通话接收未确认") : CBL(@"本地设备不可用 · 通话接收未确认");
     self.routeHelpButton.enabled = canConfigure;
-    self.activityLabel.stringValue = self.cleanupFailed ? @"清理失败，请退出"
-        : (_microphone != NULL ? @"● 麦克风采集中" : (_sender != NULL ? @"● 音频输出中" : @"未采集麦克风"));
+    self.activityLabel.stringValue = self.cleanupFailed ? CBL(@"清理失败，请退出")
+        : (_microphone != NULL ? CBL(@"● 麦克风采集中") : (_sender != NULL ? CBL(@"● 音频输出中") : CBL(@"未采集麦克风")));
     self.activityLabel.toolTip = self.routeLabel.stringValue;
 }
 - (void)refresh:(id)sender {
@@ -785,32 +757,32 @@ static int virtual_route_report(void) {
     [self.voices removeAllItems];
     BOOL male = NO, female = NO;
     for (CBVoiceDescriptor *voice in [self.voiceCatalog voices]) {
-        [self.voices addItemWithTitle:[NSString stringWithFormat:@"%@%@ · %@ · %@", voice.preset ? @"预设 / " : @"", voice.name, voice.gender, voice.language]];
+        [self.voices addItemWithTitle:[NSString stringWithFormat:@"%@%@ · %@ · %@", voice.preset ? CBL(@"预设 / ") : @"", voice.name, CBL(voice.gender), voice.language]];
         self.voices.lastItem.representedObject = voice;
-        self.voices.lastItem.toolTip = CBIsPocketVoice(voice.identifier) ? @"本地 Pocket 中文模型 · 使用模型原生韵律；个人音色试听使用固定短句" : [NSString stringWithFormat:@"%@\n语速 %.2f · 音高 %.2f", voice.identifier, voice.rate, voice.pitch];
+        self.voices.lastItem.toolTip = CBIsPocketVoice(voice.identifier) ? CBL(@"本地 Pocket 中文模型 · 使用模型原生韵律；个人音色试听使用固定短句") : [NSString stringWithFormat:CBL(@"%@\n语速 %.2f · 音高 %.2f"), voice.identifier, voice.rate, voice.pitch];
         male |= [voice.gender isEqual:@"男声"];
         female |= [voice.gender isEqual:@"女声"];
         if ([selected isEqual:voice.identifier]) [self.voices selectItem:self.voices.lastItem];
     }
-    self.voices.toolTip = [NSString stringWithFormat:@"系统可用音色：男声%@，女声%@。不自动下载；自然度需试听评价。",
-        male ? @"可用" : @"缺失", female ? @"可用" : @"缺失"];
+    self.voices.toolTip = [NSString stringWithFormat:CBL(@"系统可用音色：男声%@，女声%@。不自动下载；自然度需试听评价。"),
+        male ? CBL(@"可用") : CBL(@"缺失"), female ? CBL(@"可用") : CBL(@"缺失")];
     CBVoiceDescriptor *selectedVoice = self.voices.selectedItem.representedObject;
     if (savedVoice.length > 0 && ![selectedVoice.identifier isEqual:savedVoice]) {
-        [self.voices addItemWithTitle:@"上次音色不可用，请重新选择可用音色"];
+        [self.voices addItemWithTitle:CBL(@"上次音色不可用，请重新选择可用音色")];
         self.voices.lastItem.enabled = NO;
         [self.voices selectItem:self.voices.lastItem];
     }
     NSString *sendUID = self.sendDevices.selectedItem.representedObject;
     int32_t status = cb_sender_available_for_uid(sendUID.UTF8String);
     self.deviceAvailable = status == 0;
-    self.status.stringValue = status == 0 ? @"待发送 · 不采集真实麦克风"
+    self.status.stringValue = status == 0 ? CBL(@"待发送 · 不采集真实麦克风")
                                           : sender_error(status);
-    if (self.voices.numberOfItems == 0) self.status.stringValue = @"没有可用中英语音，请安装系统语音后刷新。";
-    else if (self.voices.selectedItem.representedObject == nil) self.status.stringValue = @"上次音色不可用，已保留选择；请重新选择可用音色。";
+    if (self.voices.numberOfItems == 0) self.status.stringValue = CBL(@"没有可用中英语音，请安装系统语音后刷新。");
+    else if (self.voices.selectedItem.representedObject == nil) self.status.stringValue = CBL(@"上次音色不可用，已保留选择；请重新选择可用音色。");
     NSString *previousUID = [self.settings[@"preview_uid"] length] > 0
         ? self.settings[@"preview_uid"] : self.previewDevices.selectedItem.representedObject;
     [self.previewDevices removeAllItems];
-    [self.previewDevices addItemWithTitle:@"选择试听输出…"];
+    [self.previewDevices addItemWithTitle:CBL(@"选择试听输出…")];
     NSArray *devices = CFBridgingRelease(cb_copy_preview_devices());
     for (NSDictionary *device in devices) {
         [self.previewDevices addItemWithTitle:device[@"name"]];
@@ -818,12 +790,12 @@ static int virtual_route_report(void) {
         if ([previousUID isEqual:device[@"uid"]]) [self.previewDevices selectItem:self.previewDevices.lastItem];
     }
     [self selectRememberedUID:previousUID inMenu:self.previewDevices];
-    self.previewDevices.toolTip = devices == nil ? @"无法查询系统设备，请刷新重试。"
-        : @"仅列出 48 kHz、双声道、单输出流的内建/USB 设备；不跟随默认输出。推荐耳机，扬声器可能被其他通话的麦克风拾取。";
+    self.previewDevices.toolTip = devices == nil ? CBL(@"无法查询系统设备，请刷新重试。")
+        : CBL(@"仅列出 48 kHz、双声道、单输出流的内建/USB 设备；不跟随默认输出。推荐耳机，扬声器可能被其他通话的麦克风拾取。");
     NSString *previousMicrophone = [self.settings[@"microphone_uid"] length] > 0
         ? self.settings[@"microphone_uid"] : self.microphoneDevices.selectedItem.representedObject;
     [self.microphoneDevices removeAllItems];
-    [self.microphoneDevices addItemWithTitle:@"选择真实麦克风…"];
+    [self.microphoneDevices addItemWithTitle:CBL(@"选择真实麦克风…")];
     NSArray *microphones = CBMicrophoneDevices();
     for (NSDictionary *device in microphones) {
         [self.microphoneDevices addItemWithTitle:device[@"name"]];
@@ -835,8 +807,8 @@ static int virtual_route_report(void) {
         self.environmentEnabled = NO;
         self.armButton.state = NSControlStateValueOff;
     }
-    self.microphoneDevices.toolTip = microphones == nil ? @"输入设备查询失败，不代表没有麦克风。"
-        : @"只列出 48 kHz、1/2 声道内建/USB 真实输入；不跟随系统默认输入，不接虚拟/聚合/蓝牙设备。";
+    self.microphoneDevices.toolTip = microphones == nil ? CBL(@"输入设备查询失败，不代表没有麦克风。")
+        : CBL(@"只列出 48 kHz、1/2 声道内建/USB 真实输入；不跟随系统默认输入，不接虚拟/聚合/蓝牙设备。");
     [self updateControls];
 }
 - (void)microphoneDeviceChanged:(id)sender {
@@ -856,18 +828,18 @@ static int virtual_route_report(void) {
     NSString *uid = self.microphoneDevices.selectedItem.representedObject;
     int32_t status = cb_microphone_available(uid.UTF8String);
     if (status != 0) { self.status.stringValue = sender_error(status); return; }
-    if (self.environmentRequest == UINT64_MAX) { self.status.stringValue = @"环境授权编号已耗尽，请重启程序。"; return; }
+    if (self.environmentRequest == UINT64_MAX) { self.status.stringValue = CBL(@"环境授权编号已耗尽，请重启程序。"); return; }
     self.requestingMicrophone = YES;
     uint64_t request = ++self.environmentRequest;
     NSString *targetUID = [self.sendDevices.selectedItem.representedObject copy];
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"立即持续发送真实环境音？";
-    alert.informativeText = [NSString stringWithFormat:@"%@ → %@。包含环境和你的说话声，不保存录音；建议使用耳机。无需输入文字，之后发送的文字语音会叠加其中。已开启的文件背景继续播放。取消环境只关麦，停止按钮关闭全部声音。",
+    alert.messageText = CBL(@"立即持续发送真实环境音？");
+    alert.informativeText = [NSString stringWithFormat:CBL(@"%@ → %@。包含环境和你的说话声，不保存录音；建议使用耳机。无需输入文字，之后发送的文字语音会叠加其中。已开启的文件背景继续播放。取消环境只关麦，停止按钮关闭全部声音。"),
         self.microphoneDevices.titleOfSelectedItem, self.sendDevices.titleOfSelectedItem];
-    [alert addButtonWithTitle:@"开启并持续发送"];
-    [alert addButtonWithTitle:@"取消"];
+    [alert addButtonWithTitle:CBL(@"开启并持续发送")];
+    [alert addButtonWithTitle:CBL(@"取消")];
     self.environmentAlert = alert;
-    self.status.stringValue = @"等待环境发送确认 · 尚未开启新的麦克风采集";
+    self.status.stringValue = CBL(@"等待环境发送确认 · 尚未开启新的麦克风采集");
     [self updateControls];
     [self showMix:nil];
     [alert beginSheetModalForWindow:self.mixWindow completionHandler:^(NSModalResponse response) {
@@ -877,7 +849,7 @@ static int virtual_route_report(void) {
             [self completeEnvironmentRequest:request microphone:uid target:targetUID granted:NO cancelled:YES];
             return;
         }
-        self.status.stringValue = @"正在请求系统麦克风权限 · 尚未开启新的采集";
+        self.status.stringValue = CBL(@"正在请求系统麦克风权限 · 尚未开启新的采集");
         CBRequestMicrophoneAccess(^(BOOL granted) {
             [self completeEnvironmentRequest:request microphone:uid target:targetUID granted:granted cancelled:NO];
         });
@@ -896,10 +868,10 @@ static int virtual_route_report(void) {
     if (!self.requestingMicrophone || self.environmentRequest != request) return;
     self.requestingMicrophone = NO;
     if (cancelled || !granted) {
-        self.status.stringValue = cancelled ? @"已取消开麦，其他声音不受影响。" : sender_error(-21003);
+        self.status.stringValue = cancelled ? CBL(@"已取消开麦，其他声音不受影响。") : sender_error(-21003);
     } else if (![uid isEqual:self.microphoneDevices.selectedItem.representedObject]
         || ![targetUID isEqual:self.sendDevices.selectedItem.representedObject] || self.cleanupFailed) {
-        self.status.stringValue = @"设备选择已变化，本次环境授权作废。";
+        self.status.stringValue = CBL(@"设备选择已变化，本次环境授权作废。");
     } else {
         [self startEnvironment:uid];
     }
@@ -941,7 +913,7 @@ static int virtual_route_report(void) {
     self.armButton.state = NSControlStateValueOn;
     self.lastMicrophoneFrames = 0;
     self.lastMicrophoneAdvance = NSProcessInfo.processInfo.systemUptime;
-    self.status.stringValue = @"环境音持续传送中 · 输入文字并发送即可叠加；停止关闭全部声音。";
+    self.status.stringValue = CBL(@"环境音持续传送中 · 输入文字并发送即可叠加；停止关闭全部声音。");
     [self startTimer];
 }
 - (void)closeEnvironment {
@@ -952,7 +924,7 @@ static int virtual_route_report(void) {
     if (status == 0 && _sender != NULL) status = cb_sender_flush_environment(_sender);
     if (status != 0) { [self fail:sender_error(status)]; return; }
     self.closingEnvironment = _sender != NULL;
-    self.status.stringValue = self.closingEnvironment ? @"麦克风已关闭，正在丢弃剩余环境音；文字语音继续。" : @"环境音已关闭。";
+    self.status.stringValue = self.closingEnvironment ? CBL(@"麦克风已关闭，正在丢弃剩余环境音；文字语音继续。") : CBL(@"环境音已关闭。");
     [self updateControls];
 }
 - (void)environmentVolumeChanged:(id)sender {
@@ -960,7 +932,7 @@ static int virtual_route_report(void) {
     self.environmentGain = self.environmentVolume.floatValue;
     [self rememberSetting:@"environment_gain" value:@(self.environmentGain)];
     if (_microphone != NULL && cb_sender_set_environment_gain(_sender, self.environmentGain) != 0) {
-        [self fail:@"环境音量更新失败，已停止全部输出。"];
+        [self fail:CBL(@"环境音量更新失败，已停止全部输出。")];
         return;
     }
     [self updateControls];
@@ -974,18 +946,18 @@ static int virtual_route_report(void) {
     [self rememberSetting:@"send_uid" value:uid];
     int32_t status = cb_sender_available_for_uid(uid.UTF8String);
     self.deviceAvailable = status == 0;
-    self.status.stringValue = status == 0 ? @"目标已选择 · 请让通话软件使用同名输入，再勾选允许发送。" : sender_error(status);
+    self.status.stringValue = status == 0 ? CBL(@"目标已选择 · 请让通话软件使用同名输入，再勾选允许发送。") : sender_error(status);
     [self updateControls];
 }
 - (void)pocketAction:(id)sender {
     (void)sender;
-    if (CBPocketBusy()) { CBPocketCancelInstall(); self.status.stringValue = @"正在取消下载…"; return; }
+    if (CBPocketBusy()) { CBPocketCancelInstall(); self.status.stringValue = CBL(@"正在取消下载…"); return; }
     if (!self.pocketButton.enabled) return;
     __weak CallBridgeApp *weakSelf = self;
     CBPocketInstall(^(NSString *message) { weakSelf.status.stringValue = message; }, ^(NSString *error) {
         CallBridgeApp *controller = weakSelf; if (!controller || controller.terminating) return;
         [controller refresh:nil]; [controller updateControls];
-        controller.status.stringValue = error ?: @"Pocket 已下载 · 点击“使用 Pocket”启用，然后可试听示例";
+        controller.status.stringValue = CBL(error) ?: CBL(@"Pocket 已下载 · 点击“使用 Pocket”启用，然后可试听示例");
     });
     [self updateControls];
 }
@@ -997,7 +969,7 @@ static int virtual_route_report(void) {
         if ([((CBVoiceDescriptor *)item.representedObject).identifier isEqual:CBPocketIdentifier()]) {
             // 与音色菜单共用选择和保存逻辑；下载完成本身不会启用或播放。
             [self.voices selectItem:item]; [self voiceChanged:nil];
-            self.status.stringValue = @"Pocket 已选择 · 可点击“试听示例音频”，或输入文字发送";
+            self.status.stringValue = CBL(@"Pocket 已选择 · 可点击“试听示例音频”，或输入文字发送");
             break;
         }
     }
@@ -1013,7 +985,7 @@ static int virtual_route_report(void) {
     if (!self.previewButton.enabled) return;
     NSString *uid = self.previewDevices.selectedItem.representedObject;
     int32_t status = cb_preview_available(uid.UTF8String);
-    if (status != 0) { self.status.stringValue = @"试听设备已离线或格式不支持，请刷新；不会切换到其他输出。"; return; }
+    if (status != 0) { self.status.stringValue = CBL(@"试听设备已离线或格式不支持，请刷新；不会切换到其他输出。"); return; }
     CBVoiceDescriptor *voice = self.voices.selectedItem.representedObject;
     NSString *phrase = CBPreviewPhrase(voice.language);
     // 使用固定短句，不清空或读取编辑器中的私人草稿；试听必须取消通话发送授权。
@@ -1028,12 +1000,11 @@ static int virtual_route_report(void) {
 }
 - (void)pinChanged:(id)sender {
     (void)sender;
-    self.textWindow.level = self.pinButton.state == NSControlStateValueOn ? NSFloatingWindowLevel : NSNormalWindowLevel;
-    [self rememberSetting:@"pin_text" value:@(self.pinButton.state == NSControlStateValueOn)];
+    CBWorkspace.shared.panelsOnTop = self.pinButton.state == NSControlStateValueOn;
 }
 - (void)volumeChanged:(id)sender {
     (void)sender;
-    self.volumeLabel.stringValue = [NSString stringWithFormat:@"人声 %.0f%%", self.volume.doubleValue * 100];
+    self.volumeLabel.stringValue = [NSString stringWithFormat:CBL(@"人声 %.0f%%"), self.volume.doubleValue * 100];
     [self rememberSetting:@"speech_gain" value:@(self.volume.doubleValue)];
     if (_sender != NULL) {
         int32_t status = cb_sender_set_gain(_sender, self.volume.floatValue);
@@ -1052,8 +1023,8 @@ static int virtual_route_report(void) {
         // 释放失败不能当作干净空闲；锁住后续发送，保留上下文直到安全清理或进程退出。
         self.cleanupFailed = YES;
         self.armButton.state = NSControlStateValueOff;
-        self.status.stringValue = [NSString stringWithFormat:@"设备清理失败（%d），已禁止继续发送。%@请退出程序。", status,
-            _microphone != NULL ? @"真实麦克风可能仍被占用。" : @""];
+        self.status.stringValue = [NSString stringWithFormat:CBL(@"设备清理失败（%d），已禁止继续发送。%@请退出程序。"), status,
+            _microphone != NULL ? CBL(@"真实麦克风可能仍被占用。") : @""];
         return NO;
     }
     self.closingEnvironment = NO;
@@ -1071,7 +1042,7 @@ static int virtual_route_report(void) {
     [self.job cancel];
     self.job = nil;
     self.armButton.state = NSControlStateValueOff;
-    if ([self closeSender]) self.status.stringValue = message;
+    if ([self closeSender]) self.status.stringValue = CBL(message);
     self.previewUID = nil;
     [self updateControls];
 }
@@ -1084,8 +1055,8 @@ static int virtual_route_report(void) {
     int32_t status = cb_sender_abort_speech(_sender);
     if (status == 0) status = cb_sender_ensure_started(_sender);
     if (status != 0) { [self fail:sender_error(status)]; return; }
-    self.status.stringValue = [NSString stringWithFormat:@"本句失败：%@%@", message,
-        self.environmentEnabled ? @" · 环境音仍持续传送" : (self.backgroundEnabled ? @" · 文件背景仍开启" : @"")];
+    self.status.stringValue = [NSString stringWithFormat:CBL(@"本句失败：%@%@"), CBL(message),
+        self.environmentEnabled ? CBL(@" · 环境音仍持续传送") : (self.backgroundEnabled ? CBL(@" · 文件背景仍开启") : @"")];
     [self startTimer];
     [self updateControls];
 }
@@ -1093,7 +1064,7 @@ static int virtual_route_report(void) {
     (void)sender;
     if (!self.sendButton.enabled || self.cleanupFailed) return;
     // markedText 是输入法尚未确认的候选，不能把拼音组合中的半成品意外发出去。
-    if (self.editor.hasMarkedText) { self.status.stringValue = @"请先确认输入法候选文字，再点击发送。"; return; }
+    if (self.editor.hasMarkedText) { self.status.stringValue = CBL(@"请先确认输入法候选文字，再点击发送。"); return; }
     [self beginSpeech:self.editor.string previewUID:nil];
 }
 - (void)beginSpeech:(NSString *)phrase previewUID:(NSString *)previewUID {
@@ -1113,10 +1084,10 @@ static int virtual_route_report(void) {
     NSError *voiceError = nil;
     BOOL pocket = [((CBVoiceDescriptor *)self.voices.selectedItem.representedObject).identifier isEqual:CBPocketIdentifier()];
     id<CBVoiceTask> task = pocket && previewUID != nil ? CBMakePocketTask(YES) : CBMakeVoiceTask(self.voices.selectedItem.representedObject, &voiceError);
-    if (task == nil) { self.status.stringValue = voiceError.localizedDescription; return; }
+    if (task == nil) { self.status.stringValue = CBL(voiceError.localizedDescription); return; }
     NSData *text = [phrase dataUsingEncoding:NSUTF8StringEncoding];
     if (text.length > 4096 || cb_session_begin(&_session, text.bytes, (uint32_t)text.length) != 0) {
-        self.status.stringValue = @"请输入 1–280 个字符的非空文字。";
+        self.status.stringValue = CBL(@"请输入 1–280 个字符的非空文字。");
         return;
     }
     // 保存本次任务编号。不是完成时再读“最新编号”，否则旧结果可能冒充新任务。
@@ -1129,13 +1100,13 @@ static int virtual_route_report(void) {
     // 跨句只重用 Rust 已确认排空的语音槽；背景及 AUHAL 始终属于原先明确授权的目标。
     if (retainedSender && (previewUID != nil || !cb_sender_is_continuous(_sender)
         || cb_sender_next_speech(_sender) != 0)) {
-        [self fail:@"上一句尚未排空，已停止输出；请重新发送。"];
+        [self fail:CBL(@"上一句尚未排空，已停止输出；请重新发送。")];
         return;
     }
     self.lastPosition = cb_sender_rendered_frames(_sender);
     self.lastAdvance = NSProcessInfo.processInfo.systemUptime;
     self.previewUID = previewUID;
-    self.status.stringValue = previewUID != nil ? @"正在准备本机试听…不会写入通话设备。" : @"正在准备首段语音…可随时停止。";
+    self.status.stringValue = previewUID != nil ? CBL(@"正在准备本机试听…不会写入通话设备。") : CBL(@"正在准备首段语音…可随时停止。");
     [self updateControls];
     self.job = task;
     // job 持有 completion，所以 completion 弱引用控制器；执行时再临时强引用。
@@ -1155,30 +1126,30 @@ static int virtual_route_report(void) {
             }
             if (status == 0) {
                 int32_t appended = cb_sender_append(controller->_sender, pcm.bytes, (uint32_t)(pcm.length / sizeof(float)));
-                if (appended != 0) { [controller failSpeech:@"语音数据或容量不符合要求。"]; return; }
+                if (appended != 0) { [controller failSpeech:CBL(@"语音数据或容量不符合要求。")]; return; }
             }
             if (first && status == 0) status = cb_sender_set_gain(controller->_sender, controller.volume.floatValue);
             if (first && status == 0) status = cb_sender_ensure_started(controller->_sender);
-            if (status != 0) { [controller fail:previewUID != nil ? @"试听输出失败，请刷新设备；不会自动回退。" : sender_error(status)]; return; }
+            if (status != 0) { [controller fail:previewUID != nil ? CBL(@"试听输出失败，请刷新设备；不会自动回退。") : sender_error(status)]; return; }
             if (!first) return;
-            if (cb_session_ready(&controller->_session, generation) != 0) { [controller fail:@"会话状态异常。"]; return; }
+            if (cb_session_ready(&controller->_session, generation) != 0) { [controller fail:CBL(@"会话状态异常。")]; return; }
             controller.lastPosition = cb_sender_rendered_frames(controller->_sender);
             controller.lastAdvance = NSProcessInfo.processInfo.systemUptime;
-            controller.status.stringValue = previewUID != nil ? @"正在本机试听 · 未向通话设备发送"
-                : [NSString stringWithFormat:@"正在发送到 %@…", controller.sendDevices.titleOfSelectedItem];
-            if (controller->_microphone != NULL) controller.status.stringValue = @"正在发送合成语音＋真实环境 · 麦克风采集中";
+            controller.status.stringValue = previewUID != nil ? CBL(@"正在本机试听 · 未向通话设备发送")
+                : [NSString stringWithFormat:CBL(@"正在发送到 %@…"), controller.sendDevices.titleOfSelectedItem];
+            if (controller->_microphone != NULL) controller.status.stringValue = CBL(@"正在发送合成语音＋真实环境 · 麦克风采集中");
             [controller updateControls];
             [controller startTimer];
         } completion:^(NSString *error) {
             CallBridgeApp *controller = weakSelf;
             if (controller == nil || controller->_session.generation != generation || controller->_session.state == 0) return;
             if (error != nil) { [controller failSpeech:error]; return; }
-            if (controller->_session.state == 1) { [controller failSpeech:@"系统没有生成可发送的语音。"]; return; }
-            if (controller->_sender == NULL) { [controller fail:@"系统没有生成可发送的语音。"]; return; }
+            if (controller->_session.state == 1) { [controller failSpeech:CBL(@"系统没有生成可发送的语音。")]; return; }
+            if (controller->_sender == NULL) { [controller fail:CBL(@"系统没有生成可发送的语音。")]; return; }
             int32_t status = cb_sender_finish(controller->_sender);
             if (status != 0) { [controller fail:sender_error(status)]; return; }
-            controller.status.stringValue = previewUID != nil ? @"正在播放剩余试听语音…" : @"合成完成，正在发送剩余语音…";
-            if (controller->_microphone != NULL) controller.status.stringValue = @"合成完成，正在发送剩余语音 · 真实麦克风仍采集中";
+            controller.status.stringValue = previewUID != nil ? CBL(@"正在播放剩余试听语音…") : CBL(@"合成完成，正在发送剩余语音…");
+            if (controller->_microphone != NULL) controller.status.stringValue = CBL(@"合成完成，正在发送剩余语音 · 真实麦克风仍采集中");
         }];
 }
 - (void)finishSpeechAtTime:(double)now {
@@ -1190,16 +1161,16 @@ static int virtual_route_report(void) {
     // 试听是独立的单句物理输出；通话的持续背景状态不能让试听设备和轮询一直占用。
     BOOL preview = self.previewUID != nil;
     if (!preview && (self.environmentEnabled || self.backgroundEnabled || self.requestingMicrophone || self.requestingBackground)) {
-        self.status.stringValue = @"本句本地发送完成 · 背景会话仍开启，可发送下一句；结束请点“停止”。";
-        if (_microphone != NULL) self.status.stringValue = @"本句发送完成 · 真实麦克风仍采集中，可发下一句；关闭请点“停止”。";
+        self.status.stringValue = CBL(@"本句本地发送完成 · 背景会话仍开启，可发送下一句；结束请点“停止”。");
+        if (_microphone != NULL) self.status.stringValue = CBL(@"本句发送完成 · 真实麦克风仍采集中，可发下一句；关闭请点“停止”。");
         self.lastPosition = cb_sender_rendered_frames(_sender);
         self.lastAdvance = now;
-    } else if ((preview || !self.closingEnvironment) && [self closeSender]) self.status.stringValue = preview ? @"试听完成。可切换音色再次试听；通话发送需重新勾选。"
-        : @"本地发送完成。请让对方确认是否完整听到；可继续发送下一句。";
+    } else if ((preview || !self.closingEnvironment) && [self closeSender]) self.status.stringValue = preview ? CBL(@"试听完成。可切换音色再次试听；通话发送需重新勾选。")
+        : CBL(@"本地发送完成。请让对方确认是否完整听到；可继续发送下一句。");
     if (!self.cleanupFailed && limitedFrames > 0)
-        self.status.stringValue = [self.status.stringValue stringByAppendingString:@" 混音触发限幅，建议降低各轨音量。"];
+        self.status.stringValue = [self.status.stringValue stringByAppendingString:CBL(@" 混音触发限幅，建议降低各轨音量。")];
     if (!self.cleanupFailed && environmentDropped > 0)
-        self.status.stringValue = [self.status.stringValue stringByAppendingString:@" 环境音缓冲曾丢帧，请留意断续。"];
+        self.status.stringValue = [self.status.stringValue stringByAppendingString:CBL(@" 环境音缓冲曾丢帧，请留意断续。")];
     self.previewUID = nil;
     [self updateControls];
 }
@@ -1208,24 +1179,24 @@ static int virtual_route_report(void) {
     (void)timer;
     uint32_t position = 0, done = 0;
     int32_t status = cb_sender_poll(_sender, &position, &done);
-    if (status != 0) { [self fail:self.previewUID != nil ? @"试听设备不可用，已停止；不会切换到其他输出。" : sender_error(status)]; return; }
+    if (status != 0) { [self fail:self.previewUID != nil ? CBL(@"试听设备不可用，已停止；不会切换到其他输出。") : sender_error(status)]; return; }
     double now = NSProcessInfo.processInfo.systemUptime;
     if (_microphone != NULL) {
         uint32_t captured = 0;
         status = cb_microphone_poll(_microphone, &captured);
         if (status != 0) { [self fail:sender_error(status)]; return; }
         if (captured != self.lastMicrophoneFrames) { self.lastMicrophoneFrames = captured; self.lastMicrophoneAdvance = now; }
-        if (now - self.lastMicrophoneAdvance > 2) { [self fail:@"真实麦克风停止提供数据，已关闭全部输出；不会换用其他输入。"] ; return; }
+        if (now - self.lastMicrophoneAdvance > 2) { [self fail:CBL(@"真实麦克风停止提供数据，已关闭全部输出；不会换用其他输入。")] ; return; }
     }
     // 环境先启动时没有人声游标；设备是否运行只看 render 心跳，TTS 超时由合成任务负责。
     uint32_t progress = cb_sender_rendered_frames(_sender);
     if (progress != self.lastPosition) { self.lastPosition = progress; self.lastAdvance = now; }
     // 没收到错误不等于设备还在工作；进度停滞超过两秒也要退出发送状态。
-    if (now - self.lastAdvance > 2) { [self fail:@"音频设备没有继续消费数据，已停止。请刷新后重试。"]; return; }
+    if (now - self.lastAdvance > 2) { [self fail:CBL(@"音频设备没有继续消费数据，已停止。请刷新后重试。")]; return; }
     if (done && _session.state == 2) [self finishSpeechAtTime:now];
     if (self.closingEnvironment && cb_sender_environment_flushed(_sender)) {
         self.closingEnvironment = NO;
-        self.status.stringValue = @"环境音已关闭 · 文字语音和文件背景不受影响";
+        self.status.stringValue = CBL(@"环境音已关闭 · 文字语音和文件背景不受影响");
     }
     // 纯环境关闭后不留下空转设备；仍有 TTS（含合成等待）或文件背景时继续使用同一 sender。
     if (_sender != NULL && _session.state == 0 && !self.environmentEnabled && !self.closingEnvironment
@@ -1246,9 +1217,79 @@ static int virtual_route_report(void) {
     [self.job cancel];
     self.job = nil;
     self.armButton.state = NSControlStateValueOff;
-    if ([self closeSender]) self.status.stringValue = @"已停止。不会重播旧文字；已提交给通话软件的声音无法撤回。";
+    if ([self closeSender]) self.status.stringValue = CBL(@"已停止。不会重播旧文字；已提交给通话软件的声音无法撤回。");
     self.previewUID = nil;
     [self updateControls];
+}
+- (void)openPanelFromStatus:(id)sender {
+    (void)sender;
+    [NSApp activateIgnoringOtherApps:YES];
+    [self.window deminiaturize:nil];
+    [self showMain:nil];
+}
+- (void)openTextFromStatus:(id)sender {
+    (void)sender;
+    [NSApp activateIgnoringOtherApps:YES];
+    [self.textWindow deminiaturize:nil];
+    [self showText:nil];
+}
+- (void)buildStatusItem {
+    // Bundle 图标同时用于 Finder 和 Dock；显式设置可覆盖直接执行二进制的启动方式。
+    NSString *iconPath = [NSBundle.mainBundle pathForResource:@"CallBridge" ofType:@"icns"];
+    NSImage *appIcon = iconPath ? [[NSImage alloc] initWithContentsOfFile:iconPath] : nil;
+    if (appIcon) NSApp.applicationIconImage = appIcon;
+    // 小尺寸保留品牌的桥形轮廓，用模板图像让系统适配亮色、暗色及选中状态。
+    NSImage *mark = [NSImage imageWithSize:NSMakeSize(18, 18) flipped:NO drawingHandler:^BOOL(NSRect rect) {
+        (void)rect;
+        [NSColor.blackColor setFill];
+        [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(1, 3, 3, 10) xRadius:1.5 yRadius:1.5] fill];
+        [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(14, 3, 3, 10) xRadius:1.5 yRadius:1.5] fill];
+        NSBezierPath *bridge = [NSBezierPath bezierPath];
+        [bridge moveToPoint:NSMakePoint(3, 7)];
+        [bridge curveToPoint:NSMakePoint(9, 12) controlPoint1:NSMakePoint(6, 7) controlPoint2:NSMakePoint(6, 12)];
+        [bridge curveToPoint:NSMakePoint(15, 7) controlPoint1:NSMakePoint(12, 12) controlPoint2:NSMakePoint(12, 7)];
+        bridge.lineWidth = 2.5;
+        [NSColor.blackColor setStroke];
+        [bridge stroke];
+        return YES;
+    }];
+    mark.template = YES;
+    self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSSquareStatusItemLength];
+    self.statusItem.button.image = mark;
+    self.statusItem.button.toolTip = @"CallBridge";
+    self.statusItem.button.accessibilityLabel = @"CallBridge";
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"CallBridge"];
+    [menu addItemWithTitle:CBL(@"打开面板") action:@selector(openPanelFromStatus:) keyEquivalent:@""].target = self;
+    [menu addItemWithTitle:CBL(@"文字输入") action:@selector(openTextFromStatus:) keyEquivalent:@""].target = self;
+    [menu addItem:NSMenuItem.separatorItem];
+    // 退出沿用应用现有的停止与设置保存流程，不从状态栏另建生命周期。
+    [menu addItemWithTitle:CBL(@"退出 CallBridge") action:@selector(terminate:) keyEquivalent:@""].target = NSApp;
+    [menu insertItem:[NSMenuItem separatorItem] atIndex:2];
+    NSMenuItem *capsules=[[NSMenuItem alloc] initWithTitle:CBL(@"小组件置顶") action:@selector(toggleCapsulesOnTop:) keyEquivalent:@""];
+    capsules.target=self;[menu insertItem:capsules atIndex:3];
+    NSMenuItem *panels=[[NSMenuItem alloc] initWithTitle:CBL(@"面板置顶") action:@selector(togglePanelsOnTop:) keyEquivalent:@""];
+    panels.target=self;[menu insertItem:panels atIndex:4];
+    [menu insertItem:[self languageMenuItem] atIndex:5];
+    self.statusItem.menu = menu;
+}
+// 语言菜单使用语言自身名称，切换后用户仍能识别；仅保存偏好，不重建运行面板。
+- (NSMenuItem *)languageMenuItem {
+    NSMenuItem *parent=[[NSMenuItem alloc] initWithTitle:CBL(@"界面语言") action:nil keyEquivalent:@""];
+    NSMenu *menu=[[NSMenu alloc] initWithTitle:parent.title];parent.submenu=menu;
+    NSArray *codes=@[@"zh-Hans",@"en",@"ja"],*names=@[@"简体中文",@"English",@"日本語"];
+    for(NSUInteger i=0;i<codes.count;i++){
+        NSMenuItem *item=[menu addItemWithTitle:names[i] action:@selector(changeUILanguage:) keyEquivalent:@""];
+        item.target=self;item.representedObject=codes[i];
+    }
+    return parent;
+}
+- (void)changeUILanguage:(NSMenuItem *)sender {
+    NSString *language=sender.representedObject;
+    if(!CBValidUILanguage(language)||!self.settingsReady||[self.settings[@"ui_language"] isEqual:language])return;
+    [self rememberSetting:@"ui_language" value:language];
+    NSAlert *alert=[NSAlert new];alert.messageText=CBL(@"界面语言已保存");
+    alert.informativeText=CBL(@"下次启动 CallBridge 时生效。当前操作不会中断。");
+    [alert addButtonWithTitle:CBL(@"知道了")];[alert runModal];
 }
 - (void)buildMenu {
     // 通过系统 responder chain 提供复制、粘贴、撤销等快捷键，不自己重新实现编辑器。
@@ -1256,13 +1297,15 @@ static int virtual_route_report(void) {
     NSMenuItem *application = [[NSMenuItem alloc] init];
     [bar addItem:application];
     NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"CallBridge"];
-    [appMenu addItemWithTitle:@"退出 CallBridge" action:@selector(terminate:) keyEquivalent:@"q"];
+    [appMenu addItemWithTitle:CBL(@"退出 CallBridge") action:@selector(terminate:) keyEquivalent:@"q"];
+    [appMenu insertItem:[self languageMenuItem] atIndex:0];
+    [appMenu insertItem:NSMenuItem.separatorItem atIndex:1];
     application.submenu = appMenu;
-    NSMenuItem *windowsItem = [[NSMenuItem alloc] initWithTitle:@"窗口" action:nil keyEquivalent:@""];
-    NSMenu *windows = [[NSMenu alloc] initWithTitle:@"窗口"];
+    NSMenuItem *windowsItem = [[NSMenuItem alloc] initWithTitle:CBL(@"窗口") action:nil keyEquivalent:@""];
+    NSMenu *windows = [[NSMenu alloc] initWithTitle:CBL(@"窗口")];
     windowsItem.submenu = windows;
     [bar addItem:windowsItem];
-    NSArray *windowTitles = @[@"主控制面板", @"文字输入", @"音频模拟", @"混音设置", @"停止全部"];
+    NSArray *windowTitles = @[CBL(@"主控制面板"), CBL(@"文字输入"), CBL(@"音频模拟"), CBL(@"混音设置"), CBL(@"停止全部")];
     const SEL windowActions[] = {@selector(showMain:), @selector(showText:), @selector(showAudio:), @selector(showMix:), @selector(stop:)};
     for (NSUInteger index = 0; index < windowTitles.count; ++index) {
         NSMenuItem *item = [windows addItemWithTitle:windowTitles[index] action:windowActions[index]
@@ -1271,44 +1314,49 @@ static int virtual_route_report(void) {
     }
     NSMenuItem *editItem = [[NSMenuItem alloc] init];
     [bar addItem:editItem];
-    NSMenu *edit = [[NSMenu alloc] initWithTitle:@"编辑"];
-    [edit addItemWithTitle:@"撤销" action:@selector(undo:) keyEquivalent:@"z"];
-    [edit addItemWithTitle:@"剪切" action:@selector(cut:) keyEquivalent:@"x"];
-    [edit addItemWithTitle:@"复制" action:@selector(copy:) keyEquivalent:@"c"];
-    [edit addItemWithTitle:@"粘贴" action:@selector(paste:) keyEquivalent:@"v"];
-    [edit addItemWithTitle:@"全选" action:@selector(selectAll:) keyEquivalent:@"a"];
+    NSMenu *edit = [[NSMenu alloc] initWithTitle:CBL(@"编辑")];
+    [edit addItemWithTitle:CBL(@"撤销") action:@selector(undo:) keyEquivalent:@"z"];
+    [edit addItemWithTitle:CBL(@"剪切") action:@selector(cut:) keyEquivalent:@"x"];
+    [edit addItemWithTitle:CBL(@"复制") action:@selector(copy:) keyEquivalent:@"c"];
+    [edit addItemWithTitle:CBL(@"粘贴") action:@selector(paste:) keyEquivalent:@"v"];
+    [edit addItemWithTitle:CBL(@"全选") action:@selector(selectAll:) keyEquivalent:@"a"];
     editItem.submenu = edit;
     // 导入只准备素材；播放入口经确认后立即输出，菜单与面板共用同一授权和音轨控制。
-    self.backgroundMenuItem = [[NSMenuItem alloc] initWithTitle:@"背景音" action:nil keyEquivalent:@""];
+    self.backgroundMenuItem = [[NSMenuItem alloc] initWithTitle:CBL(@"背景音") action:nil keyEquivalent:@""];
     [bar addItem:self.backgroundMenuItem];
-    NSMenu *backgroundMenu = [[NSMenu alloc] initWithTitle:@"背景音"];
+    NSMenu *backgroundMenu = [[NSMenu alloc] initWithTitle:CBL(@"背景音")];
     self.backgroundMenuItem.submenu = backgroundMenu;
-    self.backgroundInfo = [backgroundMenu addItemWithTitle:@"未导入素材" action:nil keyEquivalent:@""];
-    NSArray *titles = @[@"导入 WAV…", @"播放背景", @"循环素材", @"移除素材"];
+    self.backgroundInfo = [backgroundMenu addItemWithTitle:CBL(@"未导入素材") action:nil keyEquivalent:@""];
+    NSArray *titles = @[CBL(@"导入 WAV…"), CBL(@"播放背景"), CBL(@"循环素材"), CBL(@"移除素材")];
     const SEL actions[] = {@selector(importBackground:), @selector(toggleBackground:), @selector(toggleBackgroundLoop:), @selector(clearBackground:)};
     for (NSUInteger index = 0; index < titles.count; ++index) {
         NSMenuItem *item = [backgroundMenu addItemWithTitle:titles[index] action:actions[index] keyEquivalent:@""];
         item.target = self;
     }
-    NSMenuItem *gainItem = [backgroundMenu addItemWithTitle:@"背景音量" action:nil keyEquivalent:@""];
-    gainItem.submenu = [[NSMenu alloc] initWithTitle:@"背景音量"];
+    NSMenuItem *gainItem = [backgroundMenu addItemWithTitle:CBL(@"背景音量") action:nil keyEquivalent:@""];
+    gainItem.submenu = [[NSMenu alloc] initWithTitle:CBL(@"背景音量")];
     for (NSNumber *percent in @[@0, @10, @25, @50, @100]) {
         NSMenuItem *item = [gainItem.submenu addItemWithTitle:[NSString stringWithFormat:@"%@%%", percent]
             action:@selector(backgroundGainChanged:) keyEquivalent:@""];
         item.target = self;
         item.tag = percent.integerValue;
-        item.toolTip = @"只调背景，人声音量仍由面板滑块控制；过高可能触发限幅。0% 不暂停素材游标。";
+        item.toolTip = CBL(@"只调背景，人声音量仍由面板滑块控制；过高可能触发限幅。0% 不暂停素材游标。");
     }
     NSApp.mainMenu = bar;
 }
+- (void)toggleCapsulesOnTop:(id)sender { (void)sender;CBWorkspace.shared.capsulesOnTop=!CBWorkspace.shared.capsulesOnTop; }
+- (void)togglePanelsOnTop:(id)sender { (void)sender;CBWorkspace.shared.panelsOnTop=!CBWorkspace.shared.panelsOnTop; }
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
+    if(item.action==@selector(changeUILanguage:)){item.state=[item.representedObject isEqual:self.settings[@"ui_language"]]?NSControlStateValueOn:NSControlStateValueOff;return self.settingsReady;}
+    if(item.action==@selector(toggleCapsulesOnTop:)){item.state=CBWorkspace.shared.capsulesOnTop?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(togglePanelsOnTop:)){item.state=CBWorkspace.shared.panelsOnTop?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     BOOL idle = _session.state == 0 && _sender == NULL && !self.loadingBackground
         && !self.cleanupFailed && !self.requestingMicrophone && !self.requestingBackground;
     if (item.action == @selector(stop:)) return self.stopButton.enabled;
     if (item.action == @selector(importBackground:)) return idle;
     if (item.action == @selector(toggleBackground:)) {
         item.state = self.backgroundEnabled ? NSControlStateValueOn : NSControlStateValueOff;
-        item.title = self.backgroundEnabled ? @"关闭背景" : @"播放背景";
+        item.title = self.backgroundEnabled ? CBL(@"关闭背景") : CBL(@"播放背景");
         return self.backgroundToggleButton.enabled;
     }
     if (item.action == @selector(toggleBackgroundLoop:)) {
@@ -1332,12 +1380,12 @@ static int virtual_route_report(void) {
     panel.canChooseDirectories = NO;
     panel.allowsMultipleSelection = NO;
     panel.resolvesAliases = NO;
-    panel.message = @"选择不超过 30 秒 / 32 MiB 的 PCM WAV；导入不播放，不开启麦克风。";
+    panel.message = CBL(@"选择不超过 30 秒 / 32 MiB 的 PCM WAV；导入不播放，不开启麦克风。");
     [self showMix:nil];
     [panel beginSheetModalForWindow:self.mixWindow completionHandler:^(NSModalResponse response) {
         if (response != NSModalResponseOK) { self.loadingBackground = NO; [self updateControls]; return; }
         NSURL *url = panel.URL;
-        self.status.stringValue = @"正在准备背景音…";
+        self.status.stringValue = CBL(@"正在准备背景音…");
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             NSString *error = nil;
             NSData *pcm = CBLoadBackground(url, &error);
@@ -1347,12 +1395,12 @@ static int virtual_route_report(void) {
                     self.backgroundPCM = pcm;
                     self.backgroundEnabled = NO;
                     self.backgroundPaused = NO;
-                    self.backgroundInfo.title = [NSString stringWithFormat:@"已导入 %.1f 秒素材", pcm.length / (48000.0 * sizeof(float))];
+                    self.backgroundInfo.title = [NSString stringWithFormat:CBL(@"已导入 %.1f 秒素材"), pcm.length / (48000.0 * sizeof(float))];
                     self.backgroundInfo.toolTip = url.lastPathComponent;
                     [self rememberSetting:@"background_path" value:url.path];
-                    self.status.stringValue = @"背景已导入。点击“播放背景”并确认即可持续发送，无需输入文字。";
+                    self.status.stringValue = CBL(@"背景已导入。点击“播放背景”并确认即可持续发送，无需输入文字。");
                 } else {
-                    self.status.stringValue = [NSString stringWithFormat:@"%@ 原素材与设置未改变。", error ?: @"导入失败。"];
+                    self.status.stringValue = [NSString stringWithFormat:CBL(@"%@ 原素材与设置未改变。"), CBL(error) ?: CBL(@"导入失败。")];
                 }
                 [self updateControls];
             });
@@ -1368,23 +1416,23 @@ static int virtual_route_report(void) {
         if (status != 0) { [self fail:sender_error(status)]; return; }
         self.backgroundEnabled = NO;
         self.backgroundPaused = NO;
-        self.status.stringValue = @"文件背景已关闭 · 文字语音和真实环境不受影响。";
+        self.status.stringValue = CBL(@"文件背景已关闭 · 文字语音和真实环境不受影响。");
         [self updateControls];
         return;
     }
-    if (self.backgroundRequest == UINT64_MAX) { self.status.stringValue = @"背景授权编号已耗尽，请重启程序。"; return; }
+    if (self.backgroundRequest == UINT64_MAX) { self.status.stringValue = CBL(@"背景授权编号已耗尽，请重启程序。"); return; }
     self.requestingBackground = YES;
     uint64_t request = ++self.backgroundRequest;
     NSString *targetUID = [self.sendDevices.selectedItem.representedObject copy];
     NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"立即持续发送文件背景？";
-    alert.informativeText = [NSString stringWithFormat:@"%@ → %@。无需输入文字，之后的文字语音直接叠加；%@。不会开启麦克风。暂停或取消背景只影响这一轨，停止全部关闭所有声音。",
-        self.backgroundInfo.toolTip ?: @"已导入素材", self.sendDevices.titleOfSelectedItem,
-        self.backgroundLoop ? @"循环播放直到你关闭" : @"播放一次，文件结束后静音"];
-    [alert addButtonWithTitle:@"播放并持续发送"];
-    [alert addButtonWithTitle:@"取消"];
+    alert.messageText = CBL(@"立即持续发送文件背景？");
+    alert.informativeText = [NSString stringWithFormat:CBL(@"%@ → %@。无需输入文字，之后的文字语音直接叠加；%@。不会开启麦克风。暂停或取消背景只影响这一轨，停止全部关闭所有声音。"),
+        self.backgroundInfo.toolTip ?: CBL(@"已导入素材"), self.sendDevices.titleOfSelectedItem,
+        self.backgroundLoop ? CBL(@"循环播放直到你关闭") : CBL(@"播放一次，文件结束后静音")];
+    [alert addButtonWithTitle:CBL(@"播放并持续发送")];
+    [alert addButtonWithTitle:CBL(@"取消")];
     self.backgroundAlert = alert;
-    self.status.stringValue = @"等待背景发送确认 · 尚未开始新的背景播放";
+    self.status.stringValue = CBL(@"等待背景发送确认 · 尚未开始新的背景播放");
     [self updateControls];
     // 冒烟检查只走待批准状态与拒绝路径，不呈现交互确认窗，更不会打开音频设备。
     if (self.uiSmoke) return;
@@ -1405,10 +1453,10 @@ static int virtual_route_report(void) {
     self.requestingBackground = NO;
     self.backgroundAlert = nil;
     if (!granted) {
-        self.status.stringValue = @"已取消背景播放，其他声音不受影响。";
+        self.status.stringValue = CBL(@"已取消背景播放，其他声音不受影响。");
     } else if (![targetUID isEqual:self.sendDevices.selectedItem.representedObject]
         || self.backgroundPCM == nil || self.cleanupFailed || self.previewUID != nil) {
-        self.status.stringValue = @"目标或素材状态已变化，本次背景授权作废。";
+        self.status.stringValue = CBL(@"目标或素材状态已变化，本次背景授权作废。");
     } else {
         [self startBackground];
     }
@@ -1423,7 +1471,7 @@ static int virtual_route_report(void) {
     self.backgroundEnabled = YES;
     self.backgroundPaused = NO;
     self.armButton.state = NSControlStateValueOn;
-    self.status.stringValue = @"文件背景持续发送中 · 输入文字即可叠加；暂停或关闭背景只影响这一轨。";
+    self.status.stringValue = CBL(@"文件背景持续发送中 · 输入文字即可叠加；暂停或关闭背景只影响这一轨。");
     [self startTimer];
     [self updateControls];
 }
@@ -1440,11 +1488,11 @@ static int virtual_route_report(void) {
     self.backgroundEnabled = NO;
     self.backgroundPCM = nil;
     self.backgroundPaused = NO;
-    self.backgroundInfo.title = @"未导入素材";
+    self.backgroundInfo.title = CBL(@"未导入素材");
     self.backgroundInfo.toolTip = nil;
     [self rememberSetting:@"background_path" value:@""];
     self.armButton.state = NSControlStateValueOff;
-    self.status.stringValue = @"背景素材已从内存移除；源文件未修改。";
+    self.status.stringValue = CBL(@"背景素材已从内存移除；源文件未修改。");
     [self updateControls];
 }
 - (void)backgroundGainChanged:(NSMenuItem *)item {
@@ -1453,7 +1501,7 @@ static int virtual_route_report(void) {
     [self rememberSetting:@"background_gain" value:@(self.backgroundGain)];
     if (_sender != NULL) {
         int32_t status = cb_sender_set_background_gain(_sender, self.backgroundGain);
-        if (status != 0) [self fail:@"背景音量更新失败，已停止全部输出。"];
+        if (status != 0) [self fail:CBL(@"背景音量更新失败，已停止全部输出。")];
     }
     [self updateControls];
 }
@@ -1470,18 +1518,18 @@ static int virtual_route_report(void) {
 }
 - (void)backgroundVolumeChanged:(NSSlider *)slider {
     // 继续使用菜单动作的权限/状态校验和增益更新，让两处控制始终一致。
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"背景音量" action:@selector(backgroundGainChanged:) keyEquivalent:@""];
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:CBL(@"背景音量") action:@selector(backgroundGainChanged:) keyEquivalent:@""];
     item.tag = lround(slider.doubleValue * 100);
     [self backgroundGainChanged:item];
 }
 - (NSAlert *)connectionGuide {
     NSAlert *guide = [[NSAlert alloc] init];
-    guide.messageText = @"让通话软件接收 CallBridge";
+    guide.messageText = CBL(@"让通话软件接收 CallBridge");
     BOOL link = [self.sendDevices.selectedItem.representedObject isEqual:@"CallBridgeLink_UID"];
-    NSString *topology = link ? @"软件使用独立的隐藏写入端，通话软件选择公开的 CallBridge Microphone 输入，不需要寻找 Writer 或更改输出。"
-        : @"BlackHole 2ch 与 16ch 是不同设备，两端必须使用同名版本；本机微信曾出现 BlackHole 有电平但对端无声，可选择 CallBridge Microphone 路线对照。";
-    guide.informativeText = [NSString stringWithFormat:@"1. 当前目标：%@。%@选择菜单不会安装驱动或修改系统默认设备。\n\n2. 若微信没有麦克风菜单，可手动在“系统设置 → 声音 → 输入”选择 %@。这会影响使用默认输入的其他应用；先记住原设备，测试后自行恢复。输出仍选耳机或扬声器，不要选虚拟设备。\n\n3. 设置输入后重新发起通话，再用 ./CB route-check 只读核对微信实际设备。默认输入、电平跳动、本地发送完成，都不代表对端收到。\n\n4. 勾选允许发送，输入短句并点击发送，让对方复述。\n\n本说明不修改设置、不发声。试听只在本机播放；背景导入后点击“播放背景”并确认，即可独立持续发送。", self.sendDevices.titleOfSelectedItem, topology, self.sendDevices.titleOfSelectedItem];
-    [guide addButtonWithTitle:@"知道了"];
+    NSString *topology = link ? CBL(@"软件使用独立的隐藏写入端，通话软件选择公开的 CallBridge Microphone 输入，不需要寻找 Writer 或更改输出。")
+        : CBL(@"BlackHole 2ch 与 16ch 是不同设备，两端必须使用同名版本；本机微信曾出现 BlackHole 有电平但对端无声，可选择 CallBridge Microphone 路线对照。");
+    guide.informativeText = [NSString stringWithFormat:CBL(@"1. 当前目标：%@。%@选择菜单不会安装驱动或修改系统默认设备。\n\n2. 若微信没有麦克风菜单，可手动在“系统设置 → 声音 → 输入”选择 %@。这会影响使用默认输入的其他应用；先记住原设备，测试后自行恢复。输出仍选耳机或扬声器，不要选虚拟设备。\n\n3. 设置输入后重新发起通话，再用 ./CB route-check 只读核对微信实际设备。默认输入、电平跳动、本地发送完成，都不代表对端收到。\n\n4. 勾选允许发送，输入短句并点击发送，让对方复述。\n\n本说明不修改设置、不发声。试听只在本机播放；背景导入后点击“播放背景”并确认，即可独立持续发送。"), self.sendDevices.titleOfSelectedItem, topology, self.sendDevices.titleOfSelectedItem];
+    [guide addButtonWithTitle:CBL(@"知道了")];
     return guide;
 }
 - (void)showConnectionGuide:(id)sender {
@@ -1502,37 +1550,40 @@ static int virtual_route_report(void) {
     self.environmentGain = 0.25f;
     self.backgroundLoop = YES;
     [self buildMenu];
-    self.activityLabel = [NSTextField labelWithString:@"未采集麦克风"];
+    self.activityLabel = [NSTextField labelWithString:CBL(@"未采集麦克风")];
     self.activityLabel.font = CBDetailFont();
     self.activityLabel.textColor = CBSecondaryColor();
-    self.window = CBUtilityWindow([NSString stringWithFormat:@"CallBridge %@",
-        [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"开发版"],
+    self.window = CBUtilityWindow(CBL(@"CallBridge 主面板"),
         CBPanelDefaultSize, CBPanelMinimumSize, NO);
-    self.textWindow = CBUtilityWindow(@"CallBridge · 文字输入", CBTextDefaultSize, CBTextMinimumSize, YES);
-    self.audioWindow = CBUtilityWindow(@"音频模拟", CBAudioSize, CBAudioSize, NO);
-    self.mixWindow = CBUtilityWindow(@"混音设置", CBMixSize, CBMixSize, NO);
+    self.textWindow = CBUtilityWindow(CBL(@"文字输入"), CBTextDefaultSize, CBTextMinimumSize, YES);
+    self.audioWindow = CBUtilityWindow(CBL(@"音频模拟"), CBAudioSize, CBAudioSize, NO);
+    self.mixWindow = CBUtilityWindow(CBL(@"混音设置"), CBMixSize, CBMixSize, NO);
+    self.avatarController=[[CBAvatarController alloc] initWithMemoryCheck:NO];
+    __weak CallBridgeApp *weakVideoOwner=self;
+    self.avatarController.targetChanged=^(NSString *target) { [weakVideoOwner rememberSetting:@"video_target" value:target]; };
+    self.avatarController.compositionChanged=^(NSDictionary *composition) { [weakVideoOwner rememberSetting:@"video_composition" value:composition]; };
+
     for (NSWindow *window in @[self.window, self.textWindow, self.audioWindow, self.mixWindow]) window.delegate = self;
-    NSTextField *heading = [NSTextField labelWithString:@"CallBridge"];
-    heading.font = CBHeadingFont();
-    self.pinButton = [NSButton checkboxWithTitle:@"置顶" target:self action:@selector(pinChanged:)];
-    self.pinButton.state = NSControlStateValueOn;
-    self.pinButton.toolTip = @"保持在普通窗口上方，不注册全局快捷键";
+    self.pinButton = [NSButton checkboxWithTitle:CBL(@"面板置顶") target:self action:@selector(pinChanged:)];
+    self.pinButton.state = NSControlStateValueOff;
+    [self.pinButton bind:NSValueBinding toObject:CBWorkspace.shared withKeyPath:@"panelsOnTop" options:nil];
+    self.pinButton.toolTip = CBL(@"保持在普通窗口上方，不注册全局快捷键");
     self.voices = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    self.voices.accessibilityLabel = @"合成语音";
+    self.voices.accessibilityLabel = CBL(@"合成语音");
     self.voices.target = self;
     self.voices.action = @selector(voiceChanged:);
-    self.refreshButton = [NSButton buttonWithTitle:@"刷新" target:self action:@selector(refresh:)];
-    self.refreshButton.toolTip = @"重新检查设备与系统音色，不下载或发送声音";
+    self.refreshButton = [NSButton buttonWithTitle:CBL(@"刷新") target:self action:@selector(refresh:)];
+    self.refreshButton.toolTip = CBL(@"重新检查设备与系统音色，不下载或发送声音");
     NSStackView *options = [NSStackView stackViewWithViews:@[self.voices, self.refreshButton]];
     options.spacing = CBPanelSpacing;
     [self.voices setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     self.previewDevices = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    self.previewDevices.accessibilityLabel = @"本机试听输出设备";
+    self.previewDevices.accessibilityLabel = CBL(@"本机试听输出设备");
     self.previewDevices.target = self;
     self.previewDevices.action = @selector(previewDeviceChanged:);
     [self.previewDevices setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
-    self.previewButton = [NSButton buttonWithTitle:@"试听音色" target:self action:@selector(preview:)];
-    self.previewButton.toolTip = @"播放固定试听短句到选定物理设备，不发送草稿。推荐耳机；试听与持续背景、环境及通话发送互斥。";
+    self.previewButton = [NSButton buttonWithTitle:CBL(@"试听音色") target:self action:@selector(preview:)];
+    self.previewButton.toolTip = CBL(@"播放固定试听短句到选定物理设备，不发送草稿。推荐耳机；试听与持续背景、环境及通话发送互斥。");
     NSStackView *previewRow = [NSStackView stackViewWithViews:@[self.previewDevices, self.previewButton]];
     previewRow.spacing = CBPanelSpacing;
     self.sendDevices = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
@@ -1540,7 +1591,7 @@ static int virtual_route_report(void) {
     // 默认推荐已通过本机微信短句验证的路线；未安装时禁用发送，绝不偷偷退回 BlackHole。
     [self.sendDevices addItemWithTitle:@"CallBridge Microphone"];
     self.sendDevices.lastItem.representedObject = @"CallBridgeLink_UID";
-    self.sendDevices.accessibilityLabel = @"通话发送目标";
+    self.sendDevices.accessibilityLabel = CBL(@"通话发送目标");
     // 保留旧版目标供手动对照；不因默认路线缺失就自动改选，缺失选项可选但发送禁用。
     for (NSString *channels in @[@"16", @"2"]) {
         [self.sendDevices addItemWithTitle:[NSString stringWithFormat:@"BlackHole %@ch", channels]];
@@ -1548,51 +1599,51 @@ static int virtual_route_report(void) {
     }
     self.sendDevices.target = self;
     self.sendDevices.action = @selector(sendDeviceChanged:);
-    self.sendDevices.toolTip = @"只改变 CallBridge 发送目标，不改变微信或系统输入；两端需要同名版本。未安装时禁止发送，不自动回退。";
-    NSTextField *sendLabel = [NSTextField labelWithString:@"通话发送到"];
+    self.sendDevices.toolTip = CBL(@"只改变 CallBridge 发送目标，不改变微信或系统输入；两端需要同名版本。未安装时禁止发送，不自动回退。");
+    NSTextField *sendLabel = [NSTextField labelWithString:CBL(@"通话发送到")];
     sendLabel.font = CBDetailFont();
     NSStackView *sendRow = [NSStackView stackViewWithViews:@[sendLabel, self.sendDevices]];
     sendRow.spacing = CBPanelSpacing;
-    self.routeLabel = [NSTextField wrappingLabelWithString:@"通话接收未确认"];
+    self.routeLabel = [NSTextField wrappingLabelWithString:CBL(@"通话接收未确认")];
     self.routeLabel.font = CBDetailFont();
     self.routeLabel.textColor = CBSecondaryColor();
-    self.routeLabel.toolTip = @"面板不自动查询微信路由；./CB route-check 可只读核对活动设备，但对方是否听到仍需人工确认。";
-    self.routeHelpButton = [NSButton buttonWithTitle:@"通话怎么接入？" target:self action:@selector(showConnectionGuide:)];
+    self.routeLabel.toolTip = CBL(@"面板不自动查询微信路由；./CB route-check 可只读核对活动设备，但对方是否听到仍需人工确认。");
+    self.routeHelpButton = [NSButton buttonWithTitle:CBL(@"通话怎么接入？") target:self action:@selector(showConnectionGuide:)];
     NSStackView *routeRow = [NSStackView stackViewWithViews:@[self.routeHelpButton]];
     routeRow.spacing = CBPanelSpacing;
-    self.backgroundImportButton = [NSButton buttonWithTitle:@"导入背景音…" target:self action:@selector(importBackground:)];
-    self.backgroundClearButton = [NSButton buttonWithTitle:@"移除" target:self action:@selector(clearBackground:)];
-    self.backgroundPauseButton = [NSButton buttonWithTitle:@"暂停背景" target:self action:@selector(toggleBackgroundPause:)];
-    self.backgroundPauseButton.toolTip = @"只暂停背景，人声和环境继续；淡出后保留当前位置，继续时淡入。停止全部关闭所有音轨。";
-    self.backgroundFileLabel = [NSTextField labelWithString:@"未导入 WAV"];
+    self.backgroundImportButton = [NSButton buttonWithTitle:CBL(@"导入背景音…") target:self action:@selector(importBackground:)];
+    self.backgroundClearButton = [NSButton buttonWithTitle:CBL(@"移除") target:self action:@selector(clearBackground:)];
+    self.backgroundPauseButton = [NSButton buttonWithTitle:CBL(@"暂停背景") target:self action:@selector(toggleBackgroundPause:)];
+    self.backgroundPauseButton.toolTip = CBL(@"只暂停背景，人声和环境继续；淡出后保留当前位置，继续时淡入。停止全部关闭所有音轨。");
+    self.backgroundFileLabel = [NSTextField labelWithString:CBL(@"未导入 WAV")];
     self.backgroundFileLabel.font = CBDetailFont();
     self.backgroundFileLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
     [self.backgroundFileLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     NSStackView *backgroundFileRow = [NSStackView stackViewWithViews:@[self.backgroundImportButton, self.backgroundFileLabel, self.backgroundClearButton]];
     backgroundFileRow.spacing = CBPanelSpacing;
-    self.backgroundToggleButton = [NSButton checkboxWithTitle:@"播放背景" target:self action:@selector(toggleBackground:)];
-    self.backgroundToggleButton.toolTip = @"确认后立即发送文件背景，无需输入文字；取消勾选只关闭背景，文字和环境继续。";
-    self.backgroundLoopButton = [NSButton checkboxWithTitle:@"循环" target:self action:@selector(toggleBackgroundLoop:)];
-    self.backgroundVolumeLabel = [NSTextField labelWithString:@"背景 10%"];
+    self.backgroundToggleButton = [NSButton checkboxWithTitle:CBL(@"播放背景") target:self action:@selector(toggleBackground:)];
+    self.backgroundToggleButton.toolTip = CBL(@"确认后立即发送文件背景，无需输入文字；取消勾选只关闭背景，文字和环境继续。");
+    self.backgroundLoopButton = [NSButton checkboxWithTitle:CBL(@"循环") target:self action:@selector(toggleBackgroundLoop:)];
+    self.backgroundVolumeLabel = [NSTextField labelWithString:CBL(@"背景 10%")];
     self.backgroundVolumeLabel.font = CBDetailFont();
     self.backgroundVolume = [NSSlider sliderWithValue:0.1 minValue:0 maxValue:1 target:self action:@selector(backgroundVolumeChanged:)];
     self.backgroundVolume.continuous = YES;
-    self.backgroundVolume.accessibilityLabel = @"背景音音量";
-    self.backgroundVolume.toolTip = @"只调背景；0% 静音但不暂停，停止按钮关闭全部音轨。";
+    self.backgroundVolume.accessibilityLabel = CBL(@"背景音音量");
+    self.backgroundVolume.toolTip = CBL(@"只调背景；0% 静音但不暂停，停止按钮关闭全部音轨。");
     NSStackView *backgroundMixRow = [NSStackView stackViewWithViews:@[self.backgroundToggleButton, self.backgroundLoopButton, self.backgroundPauseButton]];
     backgroundMixRow.spacing = CBPanelSpacing;
-    self.environmentToggle = [NSButton checkboxWithTitle:@"混入环境" target:self action:@selector(toggleEnvironment:)];
-    self.environmentToggle.toolTip = @"勾选并确认后立即持续发送真实环境（包括说话声），不用先输入文字。取消勾选只关麦，文字语音继续；停止关闭全部。建议耳机，本版没有回声消除。";
+    self.environmentToggle = [NSButton checkboxWithTitle:CBL(@"混入环境") target:self action:@selector(toggleEnvironment:)];
+    self.environmentToggle.toolTip = CBL(@"勾选并确认后立即持续发送真实环境（包括说话声），不用先输入文字。取消勾选只关麦，文字语音继续；停止关闭全部。建议耳机，本版没有回声消除。");
     self.microphoneDevices = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    self.microphoneDevices.accessibilityLabel = @"真实环境麦克风";
+    self.microphoneDevices.accessibilityLabel = CBL(@"真实环境麦克风");
     self.microphoneDevices.target = self;
     self.microphoneDevices.action = @selector(microphoneDeviceChanged:);
     [self.microphoneDevices setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
     self.environmentVolume = [NSSlider sliderWithValue:0.25 minValue:0 maxValue:1 target:self action:@selector(environmentVolumeChanged:)];
     self.environmentVolume.continuous = YES;
-    self.environmentVolume.accessibilityLabel = @"真实环境音量";
-    self.environmentVolume.toolTip = @"只调真实麦克风轨道；0% 仍在采集，要关闭麦克风请点停止或取消混入环境。";
-    self.environmentVolumeLabel = [NSTextField labelWithString:@"环境 25%"];
+    self.environmentVolume.accessibilityLabel = CBL(@"真实环境音量");
+    self.environmentVolume.toolTip = CBL(@"只调真实麦克风轨道；0% 仍在采集，要关闭麦克风请点停止或取消混入环境。");
+    self.environmentVolumeLabel = [NSTextField labelWithString:CBL(@"环境 25%")];
     self.environmentVolumeLabel.font = CBDetailFont();
     NSStackView *environmentRow = [NSStackView stackViewWithViews:@[self.environmentToggle, self.microphoneDevices]];
     environmentRow.spacing = CBPanelSpacing;
@@ -1611,40 +1662,40 @@ static int virtual_route_report(void) {
     self.editor.textContainer.widthTracksTextView = YES;
     self.editor.horizontallyResizable = NO;
     self.editor.verticallyResizable = YES;
-    self.editor.accessibilityLabel = @"待发送文字，最多 280 个字符";
+    self.editor.accessibilityLabel = CBL(@"待发送文字，最多 280 个字符");
     scroll.documentView = self.editor;
-    self.editor.toolTip = @"Enter 换行，⌘↩ 发送；合成期间可继续编辑下一句，当前版本不自动排队。";
-    self.armButton = [NSButton checkboxWithTitle:@"允许发送到通话设备"
+    self.editor.toolTip = CBL(@"Enter 换行，⌘↩ 发送；合成期间可继续编辑下一句，当前版本不自动排队。");
+    self.armButton = [NSButton checkboxWithTitle:CBL(@"允许发送到通话设备")
         target:self action:@selector(armChanged:)];
-    self.armButton.toolTip = @"其他监听所选虚拟输入的程序也可能收到声音；通话输入选菜单同名设备，输出仍选耳机或扬声器。";
+    self.armButton.toolTip = CBL(@"其他监听所选虚拟输入的程序也可能收到声音；通话输入选菜单同名设备，输出仍选耳机或扬声器。");
     self.armButton.state = NSControlStateValueOff;
     self.armButton.cell.wraps = YES;
     self.armButton.cell.lineBreakMode = NSLineBreakByWordWrapping;
-    self.sendButton = [NSButton buttonWithTitle:@"发送" target:self action:@selector(send:)];
-    self.stopButton = [NSButton buttonWithTitle:@"停止" target:self action:@selector(stop:)];
+    self.sendButton = [NSButton buttonWithTitle:CBL(@"发送") target:self action:@selector(send:)];
+    self.stopButton = [NSButton buttonWithTitle:CBL(@"停止") target:self action:@selector(stop:)];
     self.sendButton.keyEquivalent = @"\r";
     self.sendButton.keyEquivalentModifierMask = NSEventModifierFlagCommand;
     self.stopButton.keyEquivalent = @".";
     self.stopButton.keyEquivalentModifierMask = NSEventModifierFlagCommand;
-    self.sendButton.toolTip = @"⌘↩ 发送；输入法候选需先确认";
-    self.stopButton.toolTip = @"⌘. 停止当前任务；已送出的声音无法撤回";
-    NSButton *textSettings = [NSButton buttonWithTitle:@"音频设置" target:self action:@selector(showAudio:)];
-    NSStackView *actions = [NSStackView stackViewWithViews:@[self.sendButton, self.stopButton, textSettings, self.pinButton]];
+    self.sendButton.toolTip = CBL(@"⌘↩ 发送；输入法候选需先确认");
+    self.stopButton.toolTip = CBL(@"⌘. 停止当前任务；已送出的声音无法撤回");
+    NSButton *textSettings = [NSButton buttonWithTitle:CBL(@"音频设置") target:self action:@selector(showAudio:)];
+    NSStackView *actions = CBRow(@[self.sendButton, self.stopButton, textSettings, self.pinButton]);
     actions.spacing = CBPanelSpacing;
     self.volume = [NSSlider sliderWithValue:1 minValue:0 maxValue:1 target:self action:@selector(volumeChanged:)];
     self.volume.continuous = YES;
-    self.volume.accessibilityLabel = @"合成语音音量";
-    self.volume.toolTip = @"只调人声，不修改系统音量；背景音量由面板背景滑块独立控制。0% 不等于停止全部。";
-    self.volumeLabel = [NSTextField labelWithString:@"人声 100%"];
+    self.volume.accessibilityLabel = CBL(@"合成语音音量");
+    self.volume.toolTip = CBL(@"只调人声，不修改系统音量；背景音量由面板背景滑块独立控制。0% 不等于停止全部。");
+    self.volumeLabel = [NSTextField labelWithString:CBL(@"人声 100%")];
     self.volumeLabel.font = CBDetailFont();
     NSStackView *volumeRow = [NSStackView stackViewWithViews:@[self.volumeLabel, self.volume]];
     volumeRow.spacing = CBPanelSpacing;
-    self.status = [NSTextField wrappingLabelWithString:@"正在检查设备…"];
-    self.status.accessibilityLabel = @"发送状态";
+    self.status = [NSTextField wrappingLabelWithString:CBL(@"正在检查设备…")];
+    self.status.accessibilityLabel = CBL(@"发送状态");
     self.status.font = CBDetailFont();
     self.status.textColor = CBSecondaryColor();
-    self.status.toolTip = @"本地发送完成不代表对方已经听见；设备或音色缺失会在这里显示原因。";
-    NSTextField *limit = [NSTextField labelWithString:@"⌘↩ 发送 · ⌘. 停止 · 280 字符 / 30 秒"];
+    self.status.toolTip = CBL(@"本地发送完成不代表对方已经听见；设备或音色缺失会在这里显示原因。");
+    NSTextField *limit = [NSTextField labelWithString:CBL(@"⌘↩ 发送 · ⌘. 停止 · 280 字符 / 30 秒")];
     limit.font = CBDetailFont();
     limit.textColor = CBSecondaryColor();
     // 原有控件只换宿主窗口；target/action、Rust 状态和设备授权入口保持同一份。
@@ -1655,52 +1706,63 @@ static int virtual_route_report(void) {
     NSStackView *stack = CBColumn(@[textActivity, scroll, volumeRow, self.armButton, actions, self.status, limit]);
     self.layout = stack;
     CBInstallColumn(self.textWindow, stack, YES);
+    CGFloat gainWidth=CBVolumeLabelWidth;
+    for(NSString *format in @[CBL(@"人声 %.0f%%"),CBL(@"背景 %.0f%%"),CBL(@"环境 %.0f%%")])
+        gainWidth=MAX(gainWidth,ceil([[NSString stringWithFormat:format,100.0] sizeWithAttributes:@{NSFontAttributeName:CBDetailFont()}].width)+4);
     [NSLayoutConstraint activateConstraints:@[
-        [self.armButton.heightAnchor constraintEqualToConstant:44],
-        [self.environmentVolumeLabel.widthAnchor constraintEqualToConstant:CBVolumeLabelWidth],
-        [self.backgroundVolumeLabel.widthAnchor constraintEqualToConstant:CBVolumeLabelWidth],
-        [self.volumeLabel.widthAnchor constraintEqualToConstant:CBVolumeLabelWidth],
+        [self.armButton.heightAnchor constraintGreaterThanOrEqualToConstant:20],
+        [self.environmentVolumeLabel.widthAnchor constraintEqualToConstant:gainWidth],
+        [self.backgroundVolumeLabel.widthAnchor constraintEqualToConstant:gainWidth],
+        [self.volumeLabel.widthAnchor constraintEqualToConstant:gainWidth],
         [scroll.heightAnchor constraintGreaterThanOrEqualToConstant:90]
     ]];
     [scroll setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationVertical];
-    self.pocketButton = [NSButton buttonWithTitle:@"检查中…" target:self action:@selector(pocketAction:)];
-    self.pocketStatus = [NSTextField labelWithString:@"Pocket 中文 · 检查中"];
+    self.pocketButton = [NSButton buttonWithTitle:CBL(@"检查中…") target:self action:@selector(pocketAction:)];
+    self.pocketStatus = [NSTextField labelWithString:CBL(@"Pocket 中文 · 检查中")];
     self.pocketStatus.font=CBDetailFont();
-    self.pocketUseButton = [NSButton buttonWithTitle:@"使用 Pocket" target:self action:@selector(usePocket:)];
-    self.pocketUseButton.toolTip=@"已下载并通过校验后可选择使用；不自动播放或发送。也可在上方音色菜单切回系统 TTS。";
-    self.pocketButton.toolTip = @"可选本地中文 TTS。下载后占约 170 MB，临时空间需约 250 MB；未下载仍使用系统音色。选择 Pocket 后可试听随包示例。";
-    NSButton *personal = [NSButton buttonWithTitle:@"个人音色模拟" target:self action:@selector(showPersonal:)];
-    personal.toolTip = @"导入本地语音样本，使用 Pocket 生成并保存个人音色";
-    NSButton *openText = [NSButton buttonWithTitle:@"打开文字输入  ↗" target:self action:@selector(showText:)];
-    CBInstallColumn(self.audioWindow, CBColumn(@[
-        CBSection(@"声音"), options,
-        CBRow(@[CBSection(@"可选引擎"), personal]),
-        CBRow(@[self.pocketStatus, self.pocketButton, self.pocketUseButton]),
-        CBSection(@"本机试听"), previewRow, CBSection(@"通话输出"), sendRow,
+    self.pocketUseButton = [NSButton buttonWithTitle:CBL(@"使用 Pocket") target:self action:@selector(usePocket:)];
+    self.pocketUseButton.toolTip=CBL(@"已下载并通过校验后可选择使用；不自动播放或发送。也可在上方音色菜单切回系统 TTS。");
+    self.pocketButton.toolTip = CBL(@"可选本地中文 TTS。下载后占约 170 MB，临时空间需约 250 MB；未下载仍使用系统音色。选择 Pocket 后可试听随包示例。");
+    NSButton *personal = [NSButton buttonWithTitle:CBL(@"个人音色模拟") target:self action:@selector(showPersonal:)];
+    personal.toolTip = CBL(@"导入本地语音样本，使用 Pocket 生成并保存个人音色");
+    NSButton *openText = [NSButton buttonWithTitle:CBL(@"打开文字输入  ↗") target:self action:@selector(showText:)];
+    NSStackView *engineRow=CBColumn(@[self.pocketStatus,CBRow(@[self.pocketButton,self.pocketUseButton])]);
+    NSStackView *audioColumn=CBColumn(@[
+        CBSection(CBL(@"声音")), options,
+        CBRow(@[CBSection(CBL(@"可选引擎")), personal]),
+        engineRow,
+        CBSection(CBL(@"本机试听")), previewRow, CBSection(CBL(@"通话输出")), sendRow,
         self.routeLabel, routeRow, CBRow(@[openText, [self stopMirror]]), [self statusMirror]
-    ]), NO);
-    CBInstallColumn(self.mixWindow, CBColumn(@[
-        CBSection(@"文件背景"), backgroundFileRow, backgroundMixRow,
-        CBRow(@[self.backgroundVolumeLabel, self.backgroundVolume]),
-        CBSection(@"真实环境"), environmentRow, CBRow(@[self.environmentVolumeLabel, self.environmentVolume]),
-        CBRow(@[[NSButton buttonWithTitle:@"文字输入  ↗" target:self action:@selector(showText:)], [self stopMirror]]),
+    ]);
+    // 组内 8 pt、组间 16 pt；不靠拉伸控件或空白行填满面板。
+    for(NSView *end in @[options,engineRow,previewRow,routeRow]) [audioColumn setCustomSpacing:CBSectionSpacing afterView:end];
+    CBInstallColumn(self.audioWindow,audioColumn,NO);
+    NSStackView *backgroundGainRow=CBRow(@[self.backgroundVolumeLabel,self.backgroundVolume]);
+    NSStackView *environmentGainRow=CBRow(@[self.environmentVolumeLabel,self.environmentVolume]);
+    NSStackView *mixColumn=CBColumn(@[
+        CBSection(CBL(@"文件背景")), backgroundFileRow, backgroundMixRow,
+        backgroundGainRow,
+        CBSection(CBL(@"真实环境")), environmentRow, environmentGainRow,
+        CBRow(@[[NSButton buttonWithTitle:CBL(@"文字输入  ↗") target:self action:@selector(showText:)], [self stopMirror]]),
         [self statusMirror]
-    ]), NO);
+    ]);
+    for(NSView *end in @[backgroundGainRow,environmentGainRow]) [mixColumn setCustomSpacing:CBSectionSpacing afterView:end];
+    CBInstallColumn(self.mixWindow,mixColumn,NO);
     self.moduleGrid = [[CBModuleGrid alloc] initWithFrame:NSZeroRect];
     self.moduleGrid.tiles = @[
-        CBModuleTile(@"音频模拟", @"音色 · 引擎 · 通话输出", @"waveform", self, @selector(showAudio:)),
-        CBModuleTile(@"混音设置", @"文件背景 · 真实环境", @"slider.horizontal.3", self, @selector(showMix:)),
-        CBModuleTile(@"画面处理", @"虚拟形象 · 预留", @"person.crop.rectangle", self, @selector(showPlaceholder:)),
-        CBModuleTile(@"待添加", @"留给下一种可能", @"plus", self, @selector(showPlaceholder:))
+        CBModuleTile(CBL(@"音频模拟"), CBL(@"音色 · 引擎 · 通话输出"), @"waveform", self, @selector(showAudio:)),
+        CBModuleTile(CBL(@"混音设置"), CBL(@"文件背景 · 真实环境"), @"slider.horizontal.3", self, @selector(showMix:)),
+        CBModuleTile(CBL(@"画面处理"), CBL(@"形象插件"), @"person.crop.rectangle", self, @selector(showVideo:)),
+        CBModuleTile(CBL(@"待添加"), CBL(@"留给下一种可能"), @"plus", self, @selector(showPlaceholder:))
     ];
     self.moduleScroll = [[NSScrollView alloc] init];
     self.moduleScroll.drawsBackground = NO;
     self.moduleScroll.hasVerticalScroller = YES;
     self.moduleScroll.autohidesScrollers = YES;
-    self.moduleScroll.toolTip = @"窗口较小时上下滚动，或用 Tab 访问其余模块；“窗口”菜单也可打开设置。";
-    self.moduleScroll.accessibilityLabel = @"功能模块，可上下滚动查看全部四项";
+    self.moduleScroll.toolTip = CBL(@"窗口较小时上下滚动，或用 Tab 访问其余模块；“窗口”菜单也可打开设置。");
+    self.moduleScroll.accessibilityLabel = CBL(@"功能模块，可上下滚动查看全部四项");
     self.moduleScroll.documentView = self.moduleGrid;
-    NSStackView *mainHeader = CBRow(@[heading, [NSButton buttonWithTitle:@"文字 ↗" target:self action:@selector(showText:)]]);
+    NSStackView *mainHeader = CBRow(@[[NSButton buttonWithTitle:CBL(@"文字 ↗") target:self action:@selector(showText:)]]);
     NSStackView *mainFooter = CBRow(@[self.activityLabel, [self stopMirror]]);
     CBInstallColumn(self.window, CBColumn(@[mainHeader, self.moduleScroll, mainFooter]), YES);
     [self.moduleScroll.heightAnchor constraintGreaterThanOrEqualToConstant:CBTileHeight].active = YES;
@@ -1713,7 +1775,36 @@ static int virtual_route_report(void) {
     [self refreshPocket];
     if (self.pendingTextToggle) { self.pendingTextToggle = NO; [self showText:nil]; }
     else [self showMain:nil];
+    [self buildStatusItem];
+    __weak CallBridgeApp *workspaceOwner=self;
+    for(NSWindow *window in @[self.window,self.textWindow,self.audioWindow,self.mixWindow]) {
+        [CBWorkspace.shared setWindow:window canFold:nil activity:^BOOL{CallBridgeApp *owner=workspaceOwner;return owner&&(owner->_session.state!=0||owner->_sender!=NULL||CBPocketBusy());} stop:^{CBPocketCancelInstall();[workspaceOwner stop:nil];}];
+    }
     [NSApp activateIgnoringOtherApps:YES];
+    if(self.uiLanguageCheck){
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW,300*NSEC_PER_MSEC),dispatch_get_main_queue(), ^{
+            NSDictionary *expected=@{@"zh-Hans":@"CallBridge 主面板",@"en":@"CallBridge Main",@"ja":@"CallBridge メイン"};
+            // 英文检查截图同时用于网站展示；这是诊断草稿，不合成或发送。
+            NSString *draft=[CBUILanguage() isEqual:@"en"]?@"Hello! Good to see you.":@"中文 English 日本語 — user text";self.editor.string=draft;
+            BOOL good=[self.window.title isEqual:expected[CBUILanguage()]];
+            NSMutableArray *frames=[NSMutableArray new];
+            good&=[[[self languageMenuItem].submenu.itemArray valueForKey:@"representedObject"] isEqual:@[@"zh-Hans",@"en",@"ja"]];
+            NSArray *windows=@[self.window,self.textWindow,self.audioWindow,self.mixWindow,self.avatarController.window];
+            NSArray *names=@[@"main",@"text",@"audio",@"mix",@"video"];
+            for(NSUInteger i=0;i<windows.count;i++){
+                NSWindow *window=windows[i];window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];[CBWorkspace.shared showWindow:window from:nil];
+                [window.contentView layoutSubtreeIfNeeded];
+                good&=fabs(window.frame.size.width-400)<1&&fabs(window.frame.size.height-360)<1;
+                good&=CBSaveWindowImage(window,[NSString stringWithFormat:@"ui-%@-%@.png",CBUILanguage(),names[i]],YES);
+                [frames addObject:@{@"panel":names[i],@"width":@(window.frame.size.width),@"height":@(window.frame.size.height)}];
+            }
+            for(NSView *view in @[self.voices,self.sendButton,self.armButton,self.pinButton,self.pocketButton,self.backgroundToggleButton,self.environmentToggle])good&=CBViewAccessible(view);
+            good&=[self.editor.string isEqual:draft]&&self->_sender==NULL&&self->_microphone==NULL;
+            print_report(@{@"passed":@(good),@"language":CBUILanguage(),@"frames":frames,@"draft_unchanged":@([self.editor.string isEqual:draft]),@"physical_media_io":@NO},good?0:1);
+            exit(good?0:1);
+        });
+        return;
+    }
     if (self.uiSmoke) {
         // 只检查初始布局和安全默认值；不模拟真实用户打字，也不启动音频。
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
@@ -1740,19 +1831,15 @@ static int virtual_route_report(void) {
                 for (NSView *tile in self.moduleGrid.tiles) {
                     fits &= NSContainsRect(self.moduleGrid.bounds, tile.frame) && tile.frame.size.width >= CBTileWidth - 16;
                 }
-                fits &= NSContainsRect(self.window.contentView.bounds,
-                    [mainFooter convertRect:mainFooter.bounds toView:self.window.contentView]);
+                fits &= CBViewAccessible(mainFooter);
                 [self.textWindow setContentSize:index == 0 ? CBTextMinimumSize : CBTextDefaultSize];
                 for (NSWindow *window in @[self.textWindow, self.audioWindow, self.mixWindow])
                     [window.contentView layoutSubtreeIfNeeded];
                 // 控件已分窗：检查各自宿主边界，不再强求所有设置都堆在主面板里。
                 for (NSView *view in controls) {
-                    NSView *content = view.window.contentView;
-                    NSRect bounds = [view convertRect:view.bounds toView:content];
-                    if (view.hiddenOrHasHiddenAncestor || NSWidth(bounds) <= 0 || NSHeight(bounds) <= 0
-                        || content == nil || !NSContainsRect(content.bounds, bounds)) fits = NO;
+                    if (!CBViewAccessible(view)) { fits = NO;fprintf(stderr,"inaccessible control: %s\n",view.description.UTF8String); }
                     for (NSView *other in controls) {
-                        if (view != other && view.superview == other.superview && NSIntersectsRect(view.frame, other.frame)) fits = NO;
+                        if (view != other && view.superview == other.superview && NSIntersectsRect(view.frame, other.frame)) { fits = NO;fprintf(stderr,"overlap %s / %s\n",view.description.UTF8String,other.description.UTF8String); }
                     }
                 }
                 snapshots &= CBSaveWindowImage(self.window, [NSString stringWithFormat:@"ui-%lu.png", (unsigned long)index], self.uiCapture);
@@ -1808,7 +1895,7 @@ static int virtual_route_report(void) {
             [self.textWindow setContentSize:CBTextMinimumSize];
             [self.textWindow.contentView layoutSubtreeIfNeeded];
             for (NSView *view in stack.arrangedSubviews) {
-                if (!NSContainsRect(self.textWindow.contentView.bounds, [view convertRect:view.bounds toView:self.textWindow.contentView])) fits = NO;
+                if (!CBViewAccessible(view)) fits = NO;
             }
             BOOL previewSafe = !self.previewButton.enabled && self.previewDevices.selectedItem.representedObject == nil;
             BOOL targetSafe = self.sendDevices.numberOfItems == 3
@@ -1923,13 +2010,14 @@ static int virtual_route_report(void) {
             backgroundSafe &= fabs(self.backgroundVolume.doubleValue - 0.25) < 0.001;
             [self.textWindow.contentView layoutSubtreeIfNeeded];
             [self.mixWindow.contentView layoutSubtreeIfNeeded];
-            fits &= NSContainsRect(self.textWindow.contentView.bounds, [self.armButton convertRect:self.armButton.bounds toView:self.textWindow.contentView]);
+            fits &= CBViewAccessible(self.armButton);
             for (NSView *view in @[self.backgroundImportButton, self.backgroundClearButton, self.backgroundFileLabel]) {
                 fits &= NSContainsRect(backgroundFileRow.bounds, view.frame);
+                if(!NSContainsRect(backgroundFileRow.bounds,view.frame))fprintf(stderr,"background row clipped: %s in %s\n",view.description.UTF8String,NSStringFromRect(backgroundFileRow.bounds).UTF8String);
             }
             BOOL guideSafe = [self.routeLabel.stringValue containsString:@"通话接收未确认"]
                 && [[self connectionGuide].informativeText containsString:@"这会影响使用默认输入的其他应用"]
-                && [self.window.title containsString:[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]];
+                && [self.window.title isEqual:@"CallBridge 主面板"];
             if (self.previewDevices.numberOfItems > 1 && self.voices.numberOfItems > 0) {
                 [self.previewDevices selectItemAtIndex:1];
                 [self previewDeviceChanged:nil];
@@ -2088,6 +2176,20 @@ static int virtual_route_report(void) {
                 && snapshots && personalEntry && pinWorks && volumeWorks && legacyControlsRemoved && previewSafe && previewCompletionSafe && continuousCompletionSafe
                 && targetSafe && backgroundSafe && guideSafe && environmentSafe && modulesAccessible && independentText && settingsSafe
                 && self.textWindow.level == NSNormalWindowLevel;
+            if(self.uiCapture) {
+                NSArray<NSWindow *> *showcase=@[self.window,self.audioWindow,self.textWindow,self.avatarController.window];
+                NSArray<NSString *> *names=@[@"main",@"audio",@"text",@"video"];
+                for(NSUInteger i=0;i<showcase.count;i++) {
+                    NSWindow *window=showcase[i];window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+                    [CBWorkspace.shared showWindow:window from:nil];NSRect frame=window.frame;frame.size=CBWorkspaceDefaultSize;[window setFrame:frame display:YES];
+                    NSScrollView *scroller=(NSScrollView *)window.contentView.subviews.firstObject;
+                    if([scroller isKindOfClass:NSScrollView.class])[scroller.documentView scrollPoint:NSZeroPoint];
+                    [window.contentView layoutSubtreeIfNeeded];
+                    snapshots &= CBSaveWindowImage(window, [NSString stringWithFormat:@"ui-showcase-%@.png",names[i]], YES);
+                    window.appearance=nil;
+                }
+                passed &= snapshots;
+            }
             print_report(@{ @"mode": @"ui-smoke", @"passed": @(passed), @"content_fits": @(fits),
                 @"audio_io_started": @NO, @"sizes": sizes, @"snapshots_saved": @(snapshots),
                 @"microphone_io_started": @NO, @"environment_permission_and_stop_guards": @(environmentSafe),
@@ -2113,20 +2215,19 @@ static int virtual_route_report(void) {
     }
 }
 - (BOOL)windowShouldClose:(NSWindow *)window {
-    [self rememberWindowFrames];
     // 关闭主面板不会打断仍可见的文字窗；关闭文字窗则总停止，防止隐藏后继续采集。
-    if (window == self.textWindow || (window == self.window && !self.textWindow.visible)) [self stop:nil];
+    if (window == self.textWindow || (window == self.window && ![CBWorkspace.shared isAvailable:self.textWindow])) [self stop:nil];
     if (window == self.mixWindow && self.requestingMicrophone) [self cancelEnvironmentRequest];
     if (window == self.mixWindow && self.requestingBackground) { [self cancelBackgroundRequest]; [self updateControls]; }
-    if (window != self.window && window != self.textWindow && !self.window.visible && !self.textWindow.visible) [self stop:nil];
+    if (window != self.window && window != self.textWindow && ![CBWorkspace.shared isAvailable:self.window] && ![CBWorkspace.shared isAvailable:self.textWindow]) [self stop:nil];
     return YES;
 }
 - (void)systemWillSleep:(NSNotification *)notification {
     (void)notification;
     // 睡眠后不能自动恢复现场采集；所有命令仍在主线程串行执行，不从音频回调调用。
     if (!NSThread.isMainThread) {
-        dispatch_sync(dispatch_get_main_queue(), ^{ [self stop:nil]; });
-    } else { [self stop:nil]; }
+        dispatch_sync(dispatch_get_main_queue(), ^{ [self stop:nil]; [self.avatarController shutdown]; });
+    } else { [self stop:nil]; [self.avatarController shutdown]; }
 }
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)application {
     (void)application;
@@ -2136,12 +2237,11 @@ static int virtual_route_report(void) {
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)application {
     if (self.uiSmoke) return NSTerminateNow;
     if (self.terminating) return NSTerminateLater;
-    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(rememberWindowFrames) object:nil];
-    [self rememberWindowFrames];
     [self stop:nil];
     self.terminating = YES;
     CBPocketCancelInstall();
     [self.personalController cancel];
+    [self.avatarController shutdown];
     // 正常退出等已提交的写入完成，但不在主线程同步等磁盘，也不在等待期间继续发声。
     dispatch_async(self.settingsQueue, ^{
         dispatch_async(dispatch_get_main_queue(), ^{ [self finishTermination:application]; });
@@ -2150,7 +2250,7 @@ static int virtual_route_report(void) {
 }
 - (void)finishTermination:(NSApplication *)application {
     // 给取消中的样本任务完成临时文件清理的机会，主线程仍可响应窗口事件。
-    if (self.personalController.busy) {
+    if (self.personalController.busy || self.avatarController.busy) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,50*NSEC_PER_MSEC),dispatch_get_main_queue(), ^{
             [self finishTermination:application];
         });
@@ -2161,13 +2261,20 @@ static int virtual_route_report(void) {
     (void)notification;
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
     [self stop:nil];
+    [self.avatarController shutdown];
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
+    if (self.statusItem) [NSStatusBar.systemStatusBar removeStatusItem:self.statusItem];
+    self.statusItem = nil;
+    [CBWorkspace.shared shutdown];
 }
 @end
 
 int main(int argc, const char *argv[]) {
     // 4. 参数路由在启动 GUI 前完成；主动发送必须带 --confirm-virtual-io。
     @autoreleasepool {
+        if (argc==2 && strcmp(argv[1],"--workspace-check")==0) return CBWorkspaceCheck()?0:1;
+        if (argc==5 && strcmp(argv[1],"--avatar-plugin-check")==0) return CBAvatarPluginCheck([NSString stringWithUTF8String:argv[2]],[NSString stringWithUTF8String:argv[3]],[NSString stringWithUTF8String:argv[4]]);
+        if (argc==2 && strcmp(argv[1],"--avatar-ui-check")==0) return CBAvatarPanelCheck();
         NSString *defaultVoice = @"com.apple.voice.compact.zh-CN.Tingting";
         // 明确指定写入端；文件、UID 和授权都必须有效，不能复用面板当前选择作为隐式目标。
         if (argc == 5 && (strcmp(argv[1], "--mixed-device-smoke") == 0 || strcmp(argv[1], "--mixed-device-cancel-smoke") == 0)
@@ -2233,7 +2340,8 @@ int main(int argc, const char *argv[]) {
         if (argc == 2 && strcmp(argv[1], "--cancel-smoke") == 0) return smoke_test(NO, YES, defaultVoice);
         if (argc == 3 && strcmp(argv[1], "--sender-smoke") == 0 && strcmp(argv[2], "--confirm-virtual-io") == 0) return stream_smoke(YES, NO, defaultVoice, nil, nil);
         BOOL uiCapture = argc == 2 && strcmp(argv[1], "--ui-smoke-capture") == 0;
-        BOOL uiSmoke = uiCapture || (argc == 2 && strcmp(argv[1], "--ui-smoke") == 0);
+        BOOL uiLanguageCheck = argc==3 && strcmp(argv[1],"--ui-language-check")==0 && CBValidUILanguage([NSString stringWithUTF8String:argv[2]]);
+        BOOL uiSmoke = uiLanguageCheck || uiCapture || (argc == 2 && strcmp(argv[1], "--ui-smoke") == 0);
         if (argc != 1 && !uiSmoke) {
             fprintf(stderr, "explicit virtual output: --sender-device-smoke UID --confirm-virtual-io\n");
             fprintf(stderr, "explicit mixed output: --mixed-device-smoke|--mixed-device-cancel-smoke FILE UID --confirm-virtual-io\n");
@@ -2241,12 +2349,16 @@ int main(int argc, const char *argv[]) {
             fprintf(stderr, "usage: CallBridge [--voices | --mixed-speech-check FILE | --background-check FILE | --voice-provider-check | --voice-plugin-check FILE | --voice-plugin-smoke FILE | --tts-smoke [VOICE_ID] | --stream-smoke [VOICE_ID] | --converter-check | --stream-cancel-smoke | --cancel-smoke | --ui-smoke | --preview-devices | --preview-route-check | --preview-smoke UID --confirm-local-audio | --preview-cancel-smoke UID --confirm-local-audio | --sender-smoke --confirm-virtual-io]\n");
             return 2;
         }
+        // 启动前读取有界偏好；窗口显示后的设置与媒体加载仍使用原后台队列。
+        NSString *language=uiLanguageCheck?[NSString stringWithUTF8String:argv[2]]:(uiSmoke?@"zh-Hans":CBReadSettings(CBSettingsURL(),nil)[@"ui_language"]);
+        CBInitializeUILanguage(language);
         NSApplication *application = NSApplication.sharedApplication;
         [application setActivationPolicy:NSApplicationActivationPolicyRegular];
         // 明确保持 delegate 活到 run 返回，不能因 ARC 提前结束局部变量寿命而丢失回调对象。
         __attribute__((objc_precise_lifetime)) CallBridgeApp *delegate = [[CallBridgeApp alloc] init];
         delegate.uiSmoke = uiSmoke;
         delegate.uiCapture = uiCapture;
+        delegate.uiLanguageCheck = uiLanguageCheck;
         application.delegate = delegate;
         [application run];
         return 0;

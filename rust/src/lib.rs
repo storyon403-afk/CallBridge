@@ -21,6 +21,7 @@ mod player;
 pub mod prosody;
 pub mod prosody_stream;
 mod session;
+pub mod video;
 mod voice_plugin;
 
 pub use pcm::{PcmStats, cb_pcm_measure, cb_render_mono};

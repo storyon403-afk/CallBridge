@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CallBridge · 画面处理</title><link rel="icon" href="data:,"><link rel="stylesheet" href="style.css"></head>
+<body><main><header><div><small>CALLBRIDGE / REPLACEMENT</small><h1>画面处理</h1></div><span id="mode">本地预览</span></header>
+<section id="stage"><canvas id="avatar" aria-hidden="true"></canvas><canvas id="output" aria-label="人物与背景的最终合成预览"></canvas><div id="tracking" role="status">待机 · 正在准备画面</div><div id="hint">正在准备所选效果…</div></section>
+<nav><button id="camera" disabled>开启摄像头</button><button id="capture-background" disabled>采集空背景</button><button id="stop">停止</button><button id="demo" disabled>动作演示</button><button id="fixture" disabled>测试图驱动</button></nav>
+<p id="replacement-status" role="status">请先采集空背景</p>
+<section id="background-review" hidden><p>确认画面中没有人物。</p><canvas id="background-candidate" aria-label="待确认的空背景，仅本地查看"></canvas><nav><button id="confirm-background">确认无人并使用</button><button id="cancel-background">放弃</button></nav></section>
+<p id="status" role="status" hidden></p>
+<section class="video-output"><nav><button id="send-video" disabled>开始视频输出</button><button id="stop-video" disabled>停止视频输出</button><button id="refresh-video">刷新</button></nav><p id="video-status" role="status">正在检查 CallBridge Camera…</p></section>
+<details><summary>帮助</summary><p>人物与背景可独立选择。视频背景静音循环，声音通过音频面板配置。只有静态背景需要采集并确认；实时现场与虚拟人物组合无需离场，自动分割与补洞。窗景为程序化 2.5D，不是场景重建。</p><p>开启摄像头后点击“采集空背景”，离开镜头至少五秒，待检测通过后检查缩略图，确认无人再返回。保持固定机位；移动相机或改变场景后重新采集。背景仅在本次会话内存中保存。</p><p>只驱动头脸、肩臂与双手，人物保持居中。未检测到人物时自动待机。实时模式保留同帧环境并移除真人，遮挡处用周围背景颜色近似补全；它不还原未知细节。分割缺失或过期时停用现场层，保留虚拟角色。分割存在漏检可能，多人、镜面和复杂遮挡尚未验收。</p><p>确认所选虚拟摄像头已安装并获系统批准后，点击“开始视频输出”，再在通话软件中选择同名摄像头。使用 OBS 时请退出 OBS 主程序。其他使用该虚拟摄像头的应用也可能读取输出。保持画面窗口可见；关闭、最小化、重采背景或停止会撤销输出。TTS 口型尚未接入。</p><p>澄 · 通话装：基于 VRM1 Constraint Twist Sample（© 2022 pixiv Inc.，VRM Public License 1.0）制作服装配色、立体衣领、门襟与发饰。保留原人物骨架和表情模型，并非从零制作角色。</p><pre id="stats">等待加载</pre><a href="THIRD_PARTY.txt" target="_blank" rel="noopener">第三方来源与许可</a></details>
+</main><video id="input" playsinline muted hidden></video><script type="module" src="app.js"></script></body></html>

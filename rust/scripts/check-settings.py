@@ -57,14 +57,16 @@ class SettingsTests(unittest.TestCase):
 
     def test_new_process_restores_every_persistent_setting(self):
         values = {
-            "schema_version": 1, "voice_id": "org.example.preset", "prosody_mode": 4,
+            "schema_version": 1, "ui_language": "ja", "voice_id": "org.example.preset", "prosody_mode": 4,
             "send_uid": "BlackHole2ch_UID", "preview_uid": "usb-output",
             "microphone_uid": "usb-input", "speech_gain": 0.32,
             "background_gain": 0.71, "environment_gain": 0.43,
             "background_loop": False, "pin_text": False,
+            "video_target": "callbridge",
+            "video_composition": {"person": "avatar", "background": "custom", "path": "/tmp/背景.mp4"},
             "background_path": "/tmp/背景 音.wav",
             "voice_preset_paths": ["/tmp/音色.json"],
-            "window_frames": {"main": [-400, 30, 550, 410], "text": [40, 50, 640, 300]},
+            "window_frames": {"main": [-400, 30, 550, 410], "text": [40, 50, 640, 300], "video": [50, 60, 820, 840]},
         }
         self.write(values)
         self.assertEqual(self.run_tool("read")["settings"], values)
@@ -73,20 +75,25 @@ class SettingsTests(unittest.TestCase):
     def test_runtime_authorization_and_private_text_are_never_saved(self):
         self.write({"schema_version": 1, "arm": True, "environment_enabled": True,
                     "background_enabled": True, "background_paused": True,
-                    "draft": "不应保存", "generation": 9, "pcm": [0.2]})
+                    "draft": "不应保存", "generation": 9, "pcm": [0.2],
+                    "video_active": True, "camera_active": True, "background_plate": "private-image"})
         saved = plistlib.loads(self.path.read_bytes())
         for key in ("arm", "environment_enabled", "background_enabled", "background_paused",
-                    "draft", "generation", "pcm"):
+                    "draft", "generation", "pcm", "video_active", "camera_active", "background_plate"):
             self.assertNotIn(key, saved)
 
     def test_invalid_values_cannot_select_unknown_target_or_bad_gain(self):
         self.write({"schema_version": 1, "send_uid": "BuiltInSpeakerDevice",
                     "speech_gain": 3, "background_gain": "0.5", "environment_gain": -1,
-                    "prosody_mode": 2.5, "pin_text": "false",
+                    "prosody_mode": 2.5, "ui_language": "invalid", "pin_text": "false", "video_target": "default-real-camera",
+                    "video_composition": {"person": ["avatar", "real"], "background": "reconstruction", "path": "https://example.com/private", "camera_active": True},
                     "voice_id": ["bad"], "background_path": "https://example.com/music.wav",
                     "window_frames": {"main": [0, 0, -50, 100], "unknown": [0, 0, 1, 1]}})
         value = self.run_tool("read")["settings"]
+        self.assertEqual(value["ui_language"], "zh-Hans")
         self.assertEqual(value["send_uid"], "CallBridgeLink_UID")
+        self.assertEqual(value["video_target"], "obs")
+        self.assertEqual(value["video_composition"], {"person": "none", "background": "original", "path": ""})
         self.assertEqual(value["speech_gain"], 1)
         self.assertEqual(value["prosody_mode"], 0)
         self.assertEqual(value["background_path"], "")

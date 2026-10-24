@@ -6,22 +6,23 @@
 #define CALLBRIDGE_THEME_H
 #import <AppKit/AppKit.h>
 
-static const CGFloat CBPanelPadding = 20;
-static const CGFloat CBPanelSpacing = 12;
-static const NSSize CBPanelMinimumSize = {280, 258};
-static const NSSize CBPanelDefaultSize = {548, 408};
-static const NSSize CBTextMinimumSize = {440, 400};
-static const NSSize CBTextDefaultSize = {560, 440};
-static const NSSize CBAudioSize = {520, 470};
-static const NSSize CBMixSize = {520, 380};
-static const CGFloat CBTileWidth = 236;
-static const CGFloat CBTileHeight = 140;
-static const CGFloat CBTileRadius = 18;
+static const CGFloat CBPanelPadding = 16;
+static const CGFloat CBPanelSpacing = 8;
+static const CGFloat CBSectionSpacing = 16;
+static const NSSize CBPanelMinimumSize = {252, 168};
+static const NSSize CBPanelDefaultSize = {400, 360};
+static const NSSize CBTextMinimumSize = {252, 168};
+static const NSSize CBTextDefaultSize = {400, 360};
+static const NSSize CBAudioSize = {400, 360};
+static const NSSize CBMixSize = {400, 360};
+static const CGFloat CBTileWidth = 160;
+static const CGFloat CBTileHeight = 88;
+static const CGFloat CBTileRadius = 11;
 static const CGFloat CBVolumeLabelWidth = 86;
-static inline NSFont *CBHeadingFont(void) { return [NSFont boldSystemFontOfSize:22]; }
+static inline NSFont *CBHeadingFont(void) { return [NSFont boldSystemFontOfSize:17]; }
 static inline NSFont *CBEditorFont(void) { return [NSFont systemFontOfSize:17]; }
 static inline NSFont *CBDetailFont(void) { return [NSFont systemFontOfSize:13]; }
-static inline NSFont *CBTileFont(void) { return [NSFont systemFontOfSize:17 weight:NSFontWeightSemibold]; }
+static inline NSFont *CBTileFont(void) { return [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold]; }
 static inline NSFont *CBSectionFont(void) { return [NSFont systemFontOfSize:12 weight:NSFontWeightMedium]; }
 static inline NSColor *CBSecondaryColor(void) { return NSColor.secondaryLabelColor; }
 static inline NSColor *CBSurfaceColor(void) { return NSColor.controlBackgroundColor; }

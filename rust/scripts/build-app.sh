@@ -22,15 +22,24 @@ cargo build --offline --release
 cargo build --offline --release --manifest-path pocket/Cargo.toml
 cp target/release/callbridge-pocket "$app/Contents/MacOS/callbridge-pocket"
 codesign --force --sign - "$app/Contents/MacOS/callbridge-pocket"
+# 形象只打包静态资源、两个无外部 npm 依赖的服务脚本和原生发送器。
+# 复用系统 WebKit 与本机 Node，不带 Chromium、node_modules 或重复模型。
+sh scripts/build-camera.sh
+node avatar/scripts/build.mjs
+python3 avatar/scripts/package-app.py "$app"
+cp 'build/camera/CallBridge Camera.app/Contents/MacOS/callbridge-camera-sender' "$app/Contents/MacOS/"
 # ARC 管理原生对象，blocks 支持系统异步回调，Werror 防止编译警告悄悄混入构建。
 # dead_strip 去掉未引用代码；这里只链接 App 需要的原生模块，不加入诊断回读器。
 xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
     -isysroot "$sdk_root" -mmacosx-version-min=26.0 \
-    native/app.m native/panel_ui.m native/personal_voice.m native/settings.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/pocket_provider.m native/plan_task.m native/speech_job.m native/stream_converter.m native/sender.c native/microphone.m target/release/libcallbridge_abi_probe.a \
-    -framework AppKit -framework UniformTypeIdentifiers -framework AVFoundation -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
+    native/app.m native/localization.m native/panel_ui.m native/window_workspace.m native/workspace_check.m native/personal_voice.m native/avatar_plugin.m native/avatar_plugin_check.m native/avatar_panel.m native/avatar_check.m native/settings.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/pocket_provider.m native/plan_task.m native/speech_job.m native/stream_converter.m native/sender.c native/microphone.m target/release/libcallbridge_abi_probe.a \
+    -framework AppKit -framework QuartzCore -framework WebKit -framework UniformTypeIdentifiers -framework AVFoundation -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
     -Wl,-dead_strip -o "$app/Contents/MacOS/CallBridge"
 # 标准 .app 目录必须含可执行文件和 Info.plist；签名应在这些文件就位之后进行。
 cp native/Info.plist "$app/Contents/Info.plist"
+# 仅打包轻量界面词表，不增添音频或画面插件。
+cp -R native/locales/*.lproj "$app/Contents/Resources/"
+sh scripts/build-icon.sh
 # --sign - 是本地 ad-hoc 签名，不是 Developer ID 签名，也不是 Apple 公证。
 codesign --force --sign - "$app"
 printf '%s\n' "$app"

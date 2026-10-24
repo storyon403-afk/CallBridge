@@ -10,11 +10,14 @@
     <!-- 可执行文件名要与 Contents/MacOS/ 下的构建产物一致。 -->
     <key>CFBundleExecutable</key><string>CallBridge</string>
     <key>CFBundleIdentifier</key><string>dev.callbridge.demo</string>
+    <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
+    <key>CFBundleLocalizations</key><array><string>zh-Hans</string><string>en</string><string>ja</string></array>
     <key>CFBundleName</key><string>CallBridge</string>
+    <key>CFBundleIconFile</key><string>CallBridge.icns</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <!-- 对外版本号与内部构建号分开；不能把构建号理解成系统版本。 -->
-    <key>CFBundleShortVersionString</key><string>0.7.0</string>
-    <key>CFBundleVersion</key><string>18</string>
+    <key>CFBundleShortVersionString</key><string>0.12.0</string>
+    <key>CFBundleVersion</key><string>28</string>
     <key>CFBundleURLTypes</key>
     <array><dict>
         <key>CFBundleURLName</key><string>dev.callbridge.text</string>
@@ -22,6 +25,7 @@
         <key>CFBundleTypeRole</key><string>Editor</string>
     </dict></array>
     <key>NSMicrophoneUsageDescription</key><string>仅在你勾选环境音并确认持续发送后，立即采集所选真实麦克风；文字语音随后叠加送入通话。声音包含你的说话声，不保存录音；取消环境勾选关麦，停止关闭全部声音。</string>
+    <key>NSCameraUsageDescription</key><string>仅在你点击开启摄像头后，在本机跟踪表情与动作并驱动虚拟形象。不录制或上传；视频输出需另行点击，关闭画面窗口停止采集。</string>
     <!-- 与 build-app.sh 的部署目标一致，不靠修改这个字符串就获得旧系统兼容性。 -->
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>

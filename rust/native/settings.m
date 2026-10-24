@@ -25,10 +25,11 @@ static BOOL local_path(id value) {
 
 NSDictionary *CBDefaultSettings(void) {
     return @{
-        @"schema_version": @1, @"voice_id": @"", @"prosody_mode": @0,
+        @"schema_version": @1, @"ui_language": @"zh-Hans", @"voice_id": @"", @"prosody_mode": @0,
         @"send_uid": @"CallBridgeLink_UID", @"preview_uid": @"", @"microphone_uid": @"",
         @"speech_gain": @1, @"background_gain": @0.1, @"environment_gain": @0.25,
-        @"background_loop": @YES, @"pin_text": @YES,
+        @"background_loop": @YES, @"pin_text": @YES, @"video_target": @"obs",
+        @"video_composition": @{@"person":@"none",@"background":@"original",@"path":@""},
         @"background_path": @"", @"voice_preset_paths": @[], @"window_frames": @{}
     };
 }
@@ -37,11 +38,23 @@ NSDictionary *CBNormalizeSettings(id value) {
     NSMutableDictionary *result = [CBDefaultSettings() mutableCopy];
     if (![value isKindOfClass:NSDictionary.class]
         || !number_value(value[@"schema_version"], 1, 1)) return result;
+    if ([@[@"zh-Hans", @"en", @"ja"] containsObject:value[@"ui_language"]]) result[@"ui_language"] = value[@"ui_language"];
     // 字段允许单独失效；不能让一个坏音量覆盖其他有效选择。
     for (NSString *key in @[@"voice_id", @"preview_uid", @"microphone_uid"])
         if (text_value(value[key], 1024)) result[key] = value[key];
     if ([@[@"CallBridgeLink_UID", @"BlackHole2ch_UID", @"BlackHole16ch_UID"] containsObject:value[@"send_uid"]])
         result[@"send_uid"] = value[@"send_uid"];
+    // 视频只恢复设备选择，不存储上次相机轨道、空背景或发送授权。
+    if ([@[@"obs",@"callbridge"] containsObject:value[@"video_target"]]) result[@"video_target"]=value[@"video_target"];
+    // 人物和背景各自单选，互不覆盖；仅保留资源引用，不保存采集结果或运行许可。
+    id composition=value[@"video_composition"];
+    if([composition isKindOfClass:NSDictionary.class]){
+        NSMutableDictionary *accepted=[result[@"video_composition"] mutableCopy];
+        if([@[@"none",@"avatar"] containsObject:composition[@"person"]])accepted[@"person"]=composition[@"person"];
+        if([@[@"original",@"plate",@"sample",@"parallax",@"custom"] containsObject:composition[@"background"]])accepted[@"background"]=composition[@"background"];
+        if(local_path(composition[@"path"]))accepted[@"path"]=composition[@"path"];
+        result[@"video_composition"]=accepted;
+    }
     if (number_value(value[@"prosody_mode"], 0, 5)
         && floor([value[@"prosody_mode"] doubleValue]) == [value[@"prosody_mode"] doubleValue])
         result[@"prosody_mode"] = value[@"prosody_mode"];
@@ -61,7 +74,7 @@ NSDictionary *CBNormalizeSettings(id value) {
     id frames = value[@"window_frames"];
     if ([frames isKindOfClass:NSDictionary.class]) {
         NSMutableDictionary *accepted = [NSMutableDictionary dictionary];
-        for (NSString *key in @[@"main", @"text", @"audio", @"mix"]) {
+        for (NSString *key in @[@"main", @"text", @"audio", @"mix", @"video"]) {
             id frame = frames[key];
             if ([frame isKindOfClass:NSArray.class] && [frame count] == 4
                 && number_value(frame[0], -1000000, 1000000) && number_value(frame[1], -1000000, 1000000)

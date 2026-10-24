@@ -1,0 +1,23 @@
+{
+  "revision": "94e82dd346fa6cf0337c4421728640e5252dd38e",
+  "files": [
+    {
+      "name": "MODEL-README.md",
+      "url": "https://raw.githubusercontent.com/vrm-c/vrm-specification/94e82dd346fa6cf0337c4421728640e5252dd38e/samples/VRM1_Constraint_Twist_Sample/README.md",
+      "sha256": "079d48f0b8f15852e9b28b197c5c87c92c3fe7a614524a0afa939c74f649cc5a",
+      "bytes": 190
+    },
+    {
+      "name": "sample.vrm",
+      "url": "https://raw.githubusercontent.com/vrm-c/vrm-specification/94e82dd346fa6cf0337c4421728640e5252dd38e/samples/VRM1_Constraint_Twist_Sample/vrm/VRM1_Constraint_Twist_Sample.vrm",
+      "sha256": "12c2b97e95e700783a6a550dc0eee2d7880aeedccef9ae67bc4c5a2f0f2631a2",
+      "bytes": 10776032
+    },
+    {
+      "name": "pose.jpg",
+      "url": "https://storage.googleapis.com/mediapipe-assets/pose.jpg",
+      "sha256": "c8a830ed683c0276d713dd5aeda28f415f10cd6291972084a40d0d8b934ed62b",
+      "bytes": 44100
+    }
+  ]
+}

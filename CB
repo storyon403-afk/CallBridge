@@ -11,6 +11,9 @@ if [ "$#" -gt 0 ]; then shift; fi
 case "$command" in
     help|--help|-h)
         printf '%s\n' 'cb [start|build|check|voices|voice-provider-check|tts-check|converter-check|stream-check|stream-cancel-check|cancel-check|ui-check|preview-devices|preview-route-check|sender-check --confirm-virtual-io]' 'cb preview-check|preview-cancel-check UID --confirm-local-audio' 'cb voice-plugin-check FILE | voice-plugin-test FILE（内存合成，不播放）' 'cb background-check FILE（WAV 解码及内存混音，不播放）'
+        printf '%s\n' 'cb avatar（本地形象实验；采集与视频输出默认关闭，需主动开启）'
+        printf '%s\n' 'cb avatar-obs（使用已安装的 OBS 虚拟摄像头做本地测试，需先退出 OBS 主程序）'
+        printf '%s\n' 'cb camera-build（构建自有摄像头，不安装） | camera-check（只读检查设备） | camera-setup（打开安装面板）'
         printf '%s\n' 'cb mixed-check FILE（真实 TTS＋WAV 内存组合测试，不播放）'
         printf '%s\n' 'cb prosody-speech-check VOICE_ID --confirm-system-tts（真实 Apple 分段内存检查，不播放）'
         printf '%s\n' 'cb prosody-corpus-check VOICE_ID --confirm-system-tts（40 句原样/自动断句对照，只内存合成）'
@@ -86,6 +89,15 @@ case "$command" in
         fi
         exec "$preflight" route-check ;;
     mixed-preview-check|mixed-preview-cancel-check|mixed-sender-check|mixed-sender-cancel-check|sender-device-check|mixed-device-check|mixed-device-cancel-check) ;;
+    avatar-obs) export CB_AVATAR_CAMERA=obs; exec sh "$root/rust/scripts/avatar-lab.sh" serve ;;
+    avatar) exec sh "$root/rust/scripts/avatar-lab.sh" serve ;;
+    camera-build) exec sh "$root/rust/scripts/build-camera.sh" check ;;
+    camera-check|camera-setup)
+        camera_app="$root/rust/build/camera/CallBridge Camera.app"
+        if [ -d '/Applications/CallBridge Camera.app' ]; then camera_app='/Applications/CallBridge Camera.app'; fi
+        if [ ! -x "$camera_app/Contents/MacOS/callbridge-camera-sender" ]; then printf '%s\n' '请先运行 cb camera-build。' >&2; exit 1; fi
+        if [ "$command" = camera-check ]; then exec "$camera_app/Contents/MacOS/callbridge-camera-sender" --check; fi
+        exec /usr/bin/open "$camera_app" ;;
     build) exec sh "$root/rust/scripts/build-app.sh" ;;
     check)
         cargo fmt --manifest-path "$root/rust/Cargo.toml" -- --check

@@ -1,0 +1,2 @@
+"NSMicrophoneUsageDescription" = "Captures the selected microphone only after you enable ambient audio and confirm continuous sending. Typed speech is mixed in later. Sound includes your voice; no recording is saved. Disable ambient audio to close the microphone, or Stop to end all audio.";
+"NSCameraUsageDescription" = "Uses the camera only when you select Start camera to track expressions and motion locally and animate an avatar. No recording or upload. Video output requires a separate action; closing the video window stops capture.";

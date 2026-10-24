@@ -1,0 +1,42 @@
+CallBridge Avatar Lab — 本地开源迁移实验，未发布。
+
+参考项目：Kalidoface 3D https://github.com/yeemachine/kalidoface-3d
+固定提交 13dbbe046e75b9e31a89dac5fb839a0e6876f2ec。
+该仓库有构建产物，但缺少入口所引用的 src/main.js，不把它描述为已可源码重建。
+package.json 写 ISC，LICENSE 含 MIT 模板；未复制其构建包、站点 UI 或样例人物。
+
+迁移来源：KalidoKit 1.1.5，MIT，Copyright (c) 2021 yeemachine。
+https://github.com/yeemachine/kalidokit
+参照 sample/3d/script.js 的骨骼/表情绑定；本地参考提交 6437947da2f889fdf241b84745b53082f9e881a8。
+改动：three-vrm 3.x normalized bones / expression manager，Thumb 三段命名，固定 Holistic world 字段，输入复制、数值限幅和停止代次。
+补充修正：VRM0/1 旋转基变换、连续时间插值、相对头身转角、眨眼稳定与丢点期限。
+只读核对 Kalidoface 构建文件的跟踪阈值和动作处理行为，未复制站点运行包。
+MIT 原文在 licenses/kalidokit.txt（源码 licenses/Kalidokit-MIT.txt）。
+
+Three.js 0.186.1、@pixiv/three-vrm 3.5.5：MIT，版权声明随包 licenses/ 保存。
+MediaPipe Holistic 0.5.1675471629：npm 声明 Apache-2.0。
+https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE
+这是 legacy solution，仅作对齐参考路径的实验；模型复杂度保持 1、开启精细面部点，不改权重/量化。
+只去除未选择的 lite/heavy 模型，保留 SIMD 和非 SIMD 运行时。
+
+角色：VRM1_Constraint_Twist_Sample，Copyright (c) 2022 pixiv Inc.
+https://github.com/vrm-c/vrm-specification/tree/master/samples/VRM1_Constraint_Twist_Sample
+VRM Public License 1.0：https://vrm.dev/en/licenses/1.0/
+具体使用范围以未修改 VRM 中的 meta/License Settings 为准；assets.lock.json 固定文件摘要。
+本地验证使用，未把模型列为 CallBridge 自有素材或承诺可任意分发。
+
+公开测试图：https://storage.googleapis.com/mediapipe-assets/pose.jpg
+仅作本地算法输入；不纳入产品示例素材的分发承诺。
+所有依赖实际版本与完整性记录见 package-lock.json；下载后的原型可断网运行。
+
+动作稳定性参考：1€ Filter https://gery.casiez.net/1euro/
+依照论文低通公式独立实现四元数扩展（src/rotation-filter.mjs），未复制作者实现、未新增运行依赖。
+VRM 姿态转换参考：https://github.com/vrm-c/vrm-specification/blob/master/specification/VRMC_vrm_animation-1.0/how_to_transform_human_pose.md
+采用 three-vrm normalized 骨架处理模型静止旋转，另按实际父骨旋转转换相机空间动作。
+
+半身第一版修改：口型开合/宽度/圆唇重映射，肩臂/掌面/逐指节方向与入画待机；沿用原 Holistic 权重。
+“澄 · 通话装”在 pixiv 官方样例基础上增加本地服装配色、衣领、门襟、纽扣和发饰，保留原人物脸型、蒙皮和表情。
+原 VRM meta.modification=allowModificationRedistribution，allowRedistribution=true；原版权与许可继续保留，不声称基底角色为 CallBridge 原创。
+本地服装 MToon 材质启用顶点色并适配 Three r186 的 vec4 vColor：RGB 乘法取 vColor.rgb；不修改第三方依赖文件。
+
+背景示例 backgrounds/aurora.mp4：本项目用 FFmpeg gradients 程序生成的无音轨渐变动画；不含第三方拍摄素材。复现参数见 README.md。窗景由 src/background.mjs 分层绘制，无新增外部素材或模型。
