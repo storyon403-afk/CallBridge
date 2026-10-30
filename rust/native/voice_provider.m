@@ -1,6 +1,6 @@
 /*
-本文件的目的：实现系统音色 provider 和安全的声明式预设导入。
-为什么保留快照？文件被改动、菜单刷新都不能改变正在合成的一句；任务不再读取源文件。
+本文件的目的：统一系统、中英文 Pocket 与本地音色资源的 provider；旧预设仅供诊断。
+为什么保留描述快照？菜单刷新不改变任务选择；模型和个人特征在后台再次校验。
 为什么不让插件选输出？同一音色可用于试听或通话，设备与授权仍由现有会话/发送器控制。
 JSON 只交给 Rust 解析一次；本层只处理文件句柄、系统音色对象和 ARC 生命周期。
 */
@@ -9,6 +9,7 @@ JSON 只交给 Rust 解析一次；本层只处理文件句柄、系统音色对
 #import "speech_job.h"
 #import "plan_task.h"
 #import "pocket_provider.h"
+#import "english_provider.h"
 #import <AVFAudio/AVFAudio.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -27,11 +28,21 @@ static BOOL allowed_voice(AVSpeechSynthesisVoice *voice) {
 }
 
 @interface CBVoiceDescriptor ()
+@property(nonatomic,copy) NSString *resourcePath;
+@property(nonatomic,copy) NSString *pluginKind;
+- (instancetype)initEnglish:(NSDictionary *)profile;
+- (instancetype)initLocal:(NSDictionary *)plugin;
 - (instancetype)initWithVoice:(AVSpeechSynthesisVoice *)voice preset:(const CallBridgeVoicePreset *)preset;
 - (instancetype)initPocket;
 - (instancetype)initPersonal:(NSDictionary *)profile;
 @end
 @implementation CBVoiceDescriptor
+- (instancetype)initEnglish:(NSDictionary *)profile {
+    if((self=[self initPocket])){_identifier=profile?[@"plugin.pocket-tts-en.personal." stringByAppendingString:profile[@"id"]]:CBEnglishIdentifier();_voiceID=_identifier;_language=@"en-US";_name=profile?[@"Personal · " stringByAppendingString:profile[@"name"]]:@"Pocket · English";_resourcePath=profile[@"path"];_pluginKind=@"voice-en";}return self;
+}
+- (instancetype)initLocal:(NSDictionary *)plugin {
+    if((self=[self initPocket])){_identifier=[@"plugin.local." stringByAppendingString:plugin[@"id"]];_voiceID=_identifier;_name=plugin[@"name"];_pluginKind=plugin[@"kind"];_language=[_pluginKind isEqual:@"voice-en"]?@"en-US":@"zh-CN";_resourcePath=plugin[@"entry"];}return self;
+}
 - (instancetype)initPocket {
     if ((self = [super init])) { _identifier = CBPocketIdentifier(); _voiceID = _identifier; _name = @"Pocket · 中文示例音色"; _language = @"zh-CN"; _gender = @"参考音色"; _quality = 0; _rate = 1; _pitch = 1; _preset = NO; }
     return self;
@@ -62,10 +73,32 @@ static BOOL allowed_voice(AVSpeechSynthesisVoice *voice) {
 @end
 
 NSArray<CBVoiceDescriptor *> *CBSystemVoices(void) {
-    NSMutableArray *voices = [NSMutableArray array];
+    // 菜单只留每种语言的一组普通男/女声，避免把旧合成器和地区变体当成大量插件。
+    // 先选常用地区，再选质量；稳定 ID 作最后排序，同一系统配置刷新不会跳动。
+    NSMutableArray<AVSpeechSynthesisVoice *> *candidates = [NSMutableArray array];
     for (AVSpeechSynthesisVoice *voice in AVSpeechSynthesisVoice.speechVoices) {
-        if (allowed_voice(voice) && [AVSpeechSynthesisVoice voiceWithIdentifier:voice.identifier] != nil)
-            [voices addObject:[[CBVoiceDescriptor alloc] initWithVoice:voice preset:NULL]];
+        if (allowed_voice(voice) && [voice.identifier hasPrefix:@"com.apple.voice."]
+            && voice.gender != AVSpeechSynthesisVoiceGenderUnspecified
+            && [AVSpeechSynthesisVoice voiceWithIdentifier:voice.identifier] != nil)
+            [candidates addObject:voice];
+    }
+    NSInteger (^regionRank)(NSString *) = ^NSInteger(NSString *language) {
+        if ([language isEqual:@"zh-CN"] || [language isEqual:@"en-US"]) return 0;
+        return [language isEqual:@"en-GB"] ? 1 : 2;
+    };
+    [candidates sortUsingComparator:^NSComparisonResult(AVSpeechSynthesisVoice *a, AVSpeechSynthesisVoice *b) {
+        NSInteger left = regionRank(a.language), right = regionRank(b.language);
+        if (left != right) return left < right ? NSOrderedAscending : NSOrderedDescending;
+        if (a.quality != b.quality) return a.quality > b.quality ? NSOrderedAscending : NSOrderedDescending;
+        return [a.identifier compare:b.identifier];
+    }];
+    NSMutableArray *voices = [NSMutableArray array];
+    NSMutableSet *groups = [NSMutableSet set];
+    for (AVSpeechSynthesisVoice *voice in candidates) {
+        NSString *group = [NSString stringWithFormat:@"%@-%ld", [voice.language substringToIndex:2], (long)voice.gender];
+        if ([groups containsObject:group]) continue;
+        [groups addObject:group];
+        [voices addObject:[[CBVoiceDescriptor alloc] initWithVoice:voice preset:NULL]];
     }
     return [voices sortedArrayUsingComparator:^NSComparisonResult(CBVoiceDescriptor *left, CBVoiceDescriptor *right) {
         BOOL leftChinese = [left.language hasPrefix:@"zh"], rightChinese = [right.language hasPrefix:@"zh"];
@@ -75,8 +108,9 @@ NSArray<CBVoiceDescriptor *> *CBSystemVoices(void) {
 }
 
 NSString *CBPreviewPhrase(NSString *language) {
-    return [language hasPrefix:@"zh"] ? @"你好，这是我的声音。欢迎使用 CallBridge。"
-        : @"Hello, this is my voice. Welcome to CallBridge.";
+    // 所有试听入口共用相同语义；由音色语言决定，不随界面语言改变。
+    return [language hasPrefix:@"zh"] ? @"你好，我在这里，很高兴认识你"
+        : @"Hello, I'm here. It's nice to meet you.";
 }
 
 @interface CBAppleVoiceTask : NSObject <CBVoiceTask>
@@ -91,6 +125,8 @@ NSString *CBPreviewPhrase(NSString *language) {
 @end
 
 id<CBVoiceTask> CBMakeVoiceTask(CBVoiceDescriptor *voice, NSError **error) {
+    if ([voice.pluginKind isEqual:@"voice-en"]) {if(!CBEnglishReady()){voice_error(error,-23,@"英文插件尚未就绪");return nil;}return CBMakeEnglishTask(voice.resourcePath);}
+    if ([voice.pluginKind isEqual:@"voice-zh"]) {if(!CBPocketReady()){voice_error(error,-23,@"中文插件尚未就绪");return nil;}return CBMakePocketProfileTask(voice.resourcePath);}
     if (CBIsPocketVoice(voice.identifier)) {
         if (!CBPocketReady()) { voice_error(error, -23, @"Pocket 插件未安装或尚未通过校验"); return nil; }
         return [voice.identifier isEqual:CBPocketIdentifier()] ? CBMakePocketTask(NO) : CBMakePersonalPocketTask(voice.identifier);
@@ -111,7 +147,7 @@ id<CBVoiceTask> CBMakeProsodyVoiceTask(CBVoiceDescriptor *voice, uint64_t genera
     uint32_t mode, NSError **error) {
     // 原样模式仍走旧 provider，便于与计划模式对照，不强迫所有用户启用实验规则。
     id<CBVoiceTask> baseline = CBMakeVoiceTask(voice, error);
-    if (baseline == nil || mode == 0 || CBIsPocketVoice(voice.identifier)) return baseline;
+    if (baseline == nil || mode == 0 || CBIsPocketVoice(voice.identifier) || voice.pluginKind.length) return baseline;
     if (mode > 5 || generation == 0) { voice_error(error, -1, @"韵律模式或任务代次无效。"); return nil; }
     return CBCreatePlanTask(voice.voiceID, voice.language, voice.rate, voice.pitch,
         generation, mode, ^id<CBVoiceTask>(float rate, float pitch) {
@@ -173,9 +209,10 @@ CBVoiceDescriptor *CBReadVoicePreset(NSURL *url, NSError **error) {
 }
 - (NSArray<CBVoiceDescriptor *> *)voices {
     NSArray *voices = [CBSystemVoices() arrayByAddingObjectsFromArray:self.presets];
-    if (!CBPocketReady()) return voices;
-    NSMutableArray *all=[[voices arrayByAddingObject:[[CBVoiceDescriptor alloc] initPocket]] mutableCopy];
-    for (NSDictionary *profile in CBPocketPersonalVoices()) [all addObject:[[CBVoiceDescriptor alloc] initPersonal:profile]];
+    NSMutableArray *all=[voices mutableCopy];
+    if(CBPocketReady()) {[all addObject:[[CBVoiceDescriptor alloc] initPocket]];for(NSDictionary *profile in CBPocketPersonalVoices())[all addObject:[[CBVoiceDescriptor alloc] initPersonal:profile]];}
+    if(CBEnglishReady()){[all addObject:[[CBVoiceDescriptor alloc] initEnglish:nil]];for(NSDictionary *profile in CBEnglishVoices())[all addObject:[[CBVoiceDescriptor alloc] initEnglish:profile]];}
+    for(NSDictionary *plugin in CBLocalPlugins(nil))if(([plugin[@"kind"] isEqual:@"voice-zh"]&&CBPocketReady())||([plugin[@"kind"] isEqual:@"voice-en"]&&CBEnglishReady()))[all addObject:[[CBVoiceDescriptor alloc] initLocal:plugin]];
     return all;
 }
 - (BOOL)addPreset:(CBVoiceDescriptor *)preset error:(NSError **)error {

@@ -26,7 +26,7 @@ for lang, table in tables.items():
     for key, value in table.items():
         assert value, (lang, key, 'empty translation')
         assert formats(key) == formats(value), (lang, key, 'format mismatch')
-for name in ('app.m', 'avatar_panel.m', 'personal_voice.m', 'window_workspace.m', 'localization.m'):
+for name in ('app.m', 'panel_ui.m', 'audio_panel.m', 'avatar_panel.m', 'personal_voice.m', 'window_workspace.m', 'localization.m', 'english_provider.m', 'plugin_store.m', 'official_plugins.m'):
     source = (ROOT / 'native' / name).read_text()
     for raw in re.findall(r'CBL\(@("(?:[^"\\]|\\.)*")\)', source):
         assert json.loads(raw) in base, (name, raw, 'missing translation')

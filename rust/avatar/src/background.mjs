@@ -2,7 +2,7 @@
 // 两个槽分别单选，拒绝尚未实现的真人替换；媒体只来自固定本机路径，不接触音频管线。
 export function composition(value={}) {
  const person=value.person??'avatar',background=value.background??'original';
- if(!['none','avatar'].includes(person)||!['original','plate','sample','parallax','custom'].includes(background))throw Error('画面组合不支持');
+ if(!['none','avatar'].includes(person)||!['original','plate','sample','parallax','custom','image'].includes(background))throw Error('画面组合不支持');
  return Object.freeze({person,background});
 }
 export function drawParallax(ctx,w,h,now,head=0) {
@@ -21,9 +21,13 @@ export function drawParallax(ctx,w,h,now,head=0) {
  for(let i=0;i<7;i++){ctx.save();ctx.rotate((i-3)*.22+Math.sin(t*.6+i)*.02);ctx.fillStyle=i%2?'#467363':'#365c50';ctx.beginPath();ctx.ellipse(0,-h*.13,h*.018,h*.09,0,0,Math.PI*2);ctx.fill();ctx.restore();}ctx.restore();
 }
 export class BackgroundSource {
- constructor(mode){this.mode=mode;this.ready=!['sample','custom'].includes(mode);this.video=null;this.error='';}
+ constructor(mode){this.mode=mode;this.ready=!['sample','custom','image'].includes(mode);this.video=null;this.error='';}
  async prepare(){
   if(this.ready)return;
+  if(this.mode==='image'){
+   const img=new Image();await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('背景图片读取超时')),12000);img.onload=()=>{clearTimeout(timer);resolve();};img.onerror=()=>{clearTimeout(timer);reject(Error('背景图片无法解码'));};img.src='background/custom';});
+   if(img.naturalWidth<1||img.naturalHeight<1||img.naturalWidth>4096||img.naturalHeight>4096)throw Error('背景图片最多 4096×4096');this.image=img;this.ready=true;return;
+  }
   const v=document.createElement('video');this.video=v;v.muted=true;v.defaultMuted=true;v.volume=0;v.loop=true;v.playsInline=true;v.preload='auto';
   v.src=this.mode==='sample'?'backgrounds/aurora.mp4':'background/custom';
   try {
@@ -40,6 +44,7 @@ export class BackgroundSource {
  pause(){this.video?.pause();}
  draw(ctx,w,h,now,head){
   if(this.mode==='parallax'){drawParallax(ctx,w,h,now,head);return;}
+  if(this.image){const v=this.image,s=Math.max(w/v.naturalWidth,h/v.naturalHeight),dw=v.naturalWidth*s,dh=v.naturalHeight*s;ctx.drawImage(v,(w-dw)/2,(h-dh)/2,dw,dh);return;}
   const v=this.video;if(!this.ready||!v||v.readyState<2)return;
   const scale=Math.max(w/v.videoWidth,h/v.videoHeight),dw=v.videoWidth*scale,dh=v.videoHeight*scale;
   ctx.drawImage(v,(w-dw)/2,(h-dh)/2,dw,dh);

@@ -1,0 +1,7 @@
+{
+  "version": "22.23.2",
+  "platform": "darwin-arm64",
+  "archive": "node-v22.23.2-darwin-arm64.tar.xz",
+  "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-darwin-arm64.tar.xz",
+  "sha256": "5eff7a9011895aae3f29d06f167b84a62b028a591370c7cafb59103559fd26e1"
+}

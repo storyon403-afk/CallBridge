@@ -1,8 +1,8 @@
 // 本文件的目的：切换展示素材与语言；视频均由用户主动播放，不采集音视频，也不添加说明段落。
 (()=>{
  const $=id=>document.getElementById(id),items=window.CALLBRIDGE_SHOWCASE;
- let active=0,language='zh',disposeExperience=null;
- try{language=localStorage.getItem('callbridge-site-language')==='en'?'en':'zh';}catch{}
+ let active=0,language='en',disposeExperience=null;
+ try{language=localStorage.getItem('callbridge-site-language')==='zh'?'zh':'en';}catch{}
  const text=value=>value[language]??value.zh;
  const label=(zh,en)=>language==='zh'?zh:en;
  function video(src,poster,muted=false){const v=document.createElement('video');v.src=src;if(poster)v.poster=poster;v.controls=true;v.playsInline=true;v.preload='none';v.muted=muted;return v;}
@@ -12,7 +12,9 @@
   const tabs=$('tabs'),panel=$('media-panel');panel.querySelectorAll('video').forEach(v=>{v.pause();v.removeAttribute('src');v.load();});panel.replaceChildren();tabs.replaceChildren();
   items.forEach((item,i)=>{const b=document.createElement('button');b.type='button';b.id='tab-'+item.id;b.setAttribute('role','tab');b.setAttribute('aria-selected',String(i===active));b.setAttribute('aria-controls','media-panel');b.tabIndex=i===active?0:-1;b.textContent=text(item.title);b.addEventListener('click',()=>{active=i;render();$('tab-'+item.id).focus({preventScroll:true});});tabs.append(b);});
   const item=items[active];panel.setAttribute('aria-labelledby','tab-'+item.id);panel.dataset.item=item.id;$('counter').textContent=String(active+1).padStart(2,'0')+' / '+String(items.length).padStart(2,'0');
-  if(item.type==='experience'){disposeExperience=window.CBExperience.mount(panel,language);}
+  if(item.type==='studio'){disposeExperience=window.CBStudio.mount(panel,language);}
+  else if(item.type==='recordings'){const wrap=document.createElement('div'),choice=document.createElement('div'),body=document.createElement('div');wrap.className='recordings';choice.className='recording-choice';choice.setAttribute('role','group');choice.setAttribute('aria-label',label('选择微信实录','Choose a WeChat recording'));function show(index){body.querySelectorAll('video').forEach(v=>v.pause());body.replaceChildren();const row=item.items[index];body.className='paired-media';const arrow=document.createElement('span');arrow.className='arrow';arrow.textContent='→';body.append(frame(label('操作流程','Workflow'),row.operation,row.operationPoster,'workflow'),arrow,frame(label('微信端效果 · 播放声音','WeChat result · play with sound'),row.result,row.poster,'result'));Array.from(choice.children).forEach((b,i)=>b.setAttribute('aria-pressed',String(i===index)));}item.items.forEach((row,i)=>{const b=document.createElement('button');b.textContent=text(row.title);b.onclick=()=>show(i);choice.append(b);});wrap.append(choice,body);panel.append(wrap);show(0);}
+  else if(item.type==='experience'){disposeExperience=window.CBExperience.mount(panel,language);}
   else if(item.type==='pair'&&item.operation&&item.result){const pair=document.createElement('div');pair.className='paired-media';const arrow=document.createElement('span');arrow.className='arrow';arrow.textContent='→';arrow.setAttribute('aria-hidden','true');pair.append(frame(label('操作流程','Workflow'),item.operation,item.operationPoster,'workflow'),arrow,frame(label('微信端效果','WeChat result'),item.result,item.poster,'result'));panel.append(pair);}
   else if(item.src){const figure=document.createElement('figure');figure.className='single-media';let media;if(item.type==='image'){media=document.createElement('img');media.src=item.src;media.alt=text(item.title);}else{media=video(item.src,item.poster);media.setAttribute('aria-label',text(item.title));}figure.append(media);panel.append(figure);}
   else{const holder=document.createElement('div');holder.className='placeholder';const mark=document.createElement('span');mark.className='placeholder-mark';mark.textContent='+';mark.setAttribute('aria-hidden','true');const caption=document.createElement('span');caption.className='placeholder-label';caption.textContent=label('待添加','Coming soon');holder.append(mark,caption);panel.append(holder);}

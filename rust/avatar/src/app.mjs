@@ -175,8 +175,11 @@ function animate(now){
  void videoOutput.tick(now);stats.videoOutput={active:videoOutput.active,starting:videoOutput.starting,sequence:videoOutput.sequence};
  if(stats.renders%30===0)$('stats').textContent=JSON.stringify({...stats,latencyMs:undefined,inferenceLastMs:stats.latencyMs.at(-1)?.toFixed(1)},null,2);
 }
-function resize(){const r=$('stage').getBoundingClientRect();renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;framePortrait();
- const scale=Math.min(1,1280/r.width,720/r.height);$('output').width=Math.max(1,Math.round(r.width*scale));$('output').height=Math.max(1,Math.round(r.height*scale));}
+function resize(){const r=$('stage').getBoundingClientRect();
+ // 原生窗口只改变预览容器；构图与实际送出帧固定 16:9，拖动窗口不会改变对端人物比例。
+ const width=window.callbridgeNative?1280:Math.max(1,r.width),height=window.callbridgeNative?720:Math.max(1,r.height);
+ renderer.setSize(width,height,false);camera.aspect=width/height;framePortrait();
+ const scale=Math.min(1,1280/width,720/height);$('output').width=Math.max(1,Math.round(width*scale));$('output').height=Math.max(1,Math.round(height*scale));}
 // 紧凑窗口中预览可能暂时位于滚动区域外；按钮初始状态不能等待首个绘制帧。
 replacementUI(performance.now());
 new ResizeObserver(resize).observe($('stage'));resize();requestAnimationFrame(animate);
@@ -201,14 +204,15 @@ async function load(){
   stats.ready=true;for(const id of ['camera','fixture'])$(id).disabled=false;
   $('demo').textContent='预览背景';$('demo').disabled=false;void videoOutput.refresh();return;
  }
- const manifest=await (await fetch('assets.json')).json();const asset=manifest.files.find(f=>f.name==='sample.vrm');
- const buffer=await (await fetch('model/sample.vrm')).arrayBuffer();
+ const custom=window.callbridgeComposition?.character===true;
+ const asset=custom?await (await fetch('character/info')).json():(await (await fetch('assets.json')).json()).files.find(f=>f.name==='sample.vrm');
+ const buffer=await (await fetch(custom?'character/model':'model/sample.vrm')).arrayBuffer();
  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',buffer)),x=>x.toString(16).padStart(2,'0')).join('');
  if(hash!==asset.sha256||buffer.byteLength!==asset.bytes)throw Error('示例角色校验失败');
  const loader=new GLTFLoader();loader.register(parser=>new VRMLoaderPlugin(parser));
  const gltf=await loader.parseAsync(buffer,'');vrm=gltf.userData.vrm;if(!vrm)throw Error('未识别 VRM 角色');
- VRMUtils.rotateVRM0(vrm);scene.add(vrm.scene);stats.appearance=dressAvatar(vrm);motion=new AvatarMotion(vrm);neutral();stats.ready=true;
- $('hint').textContent='澄 · 半身通话形象';
+ VRMUtils.rotateVRM0(vrm);scene.add(vrm.scene);stats.appearance=custom?{custom:true}:dressAvatar(vrm);motion=new AvatarMotion(vrm);neutral();stats.ready=true;
+ $('hint').textContent=custom?(vrm.meta?.name??'VRM'):'澄 · 半身通话形象';
  for(const id of ['demo','camera','fixture'])$(id).disabled=false;
  setStatus('角色已就绪 · 摄像头关闭 · 麦克风关闭 · 视频未发送');
  void videoOutput.refresh();

@@ -25,5 +25,6 @@ shutil.copyfile(root / 'avatar/plugin.lock.json', destination / 'plugin.lock.jso
 shutil.copyfile(root / 'avatar/preview.jpg', destination / 'preview.jpg')
 for name in ['server.mjs', 'camera-bridge.mjs']:
     shutil.copyfile(root / 'avatar/scripts' / name, destination / name)
-(destination / 'runtime.json').write_text(json.dumps({'node': shutil.which('node'), 'avatar_cache': str(source)}))
+# 发行包不记录开发者 HOME、Node 安装路径或缓存；可选运行时只放在固定包内位置。
+(destination / 'runtime.json').write_text(json.dumps({'schema': 1, 'node_minimum_major': 22}))
 print('形象宿主已打包；可选插件：', sum(e['bytes'] for e in manifest['files']), 'bytes')

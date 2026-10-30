@@ -1,0 +1,69 @@
+{
+  "id": "pocket-tts-en-v1",
+  "version": "2026.10.0",
+  "model_revision": "db04f0e653473e5c7333c69686ac92b7460b0c1d",
+  "runtime_version": "4.0.1",
+  "files": [
+    {
+      "name": "model.safetensors",
+      "bytes": 219029196,
+      "sha256": "bc96b82436c5ec00d3118ef3b01bc3358423e1766ecae3dca0aeea84789e7d74",
+      "url": "https://huggingface.co/kyutai/pocket-tts/resolve/db04f0e653473e5c7333c69686ac92b7460b0c1d/languages/english_2026-10/model.safetensors",
+      "authenticated": true
+    },
+    {
+      "name": "alba.safetensors",
+      "bytes": 6244152,
+      "sha256": "5850f417028fb2bf6de31e5e395e56ee7a21ac0e52ef31aebd4a6a2847d72e9c",
+      "url": "https://huggingface.co/kyutai/pocket-tts/resolve/db04f0e653473e5c7333c69686ac92b7460b0c1d/languages/english_2026-10/embeddings/alba.safetensors",
+      "authenticated": true
+    },
+    {
+      "name": "tokenizer.json",
+      "bytes": 245020,
+      "sha256": "f498428e1eafee50492f7be13dc9bfafcfc12e508cd0eb1b01c92ecd5d8c6687",
+      "url": "https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/resolve/00eac05ed3d16bdc3f6b5d598874019c34a89214/languages/english_2026-09/tokenizer.json",
+      "authenticated": false
+    },
+    {
+      "name": "pocket-tts",
+      "bytes": 20048208,
+      "sha256": "447d95181e133b3fda268d248126041722cf1bdf767093f44f2a0d047ab192be"
+    },
+    {
+      "name": "LICENSE",
+      "bytes": 1023,
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+    }
+  ],
+  "downloads": [
+    {
+      "name": "model.safetensors",
+      "bytes": 219029196,
+      "sha256": "bc96b82436c5ec00d3118ef3b01bc3358423e1766ecae3dca0aeea84789e7d74",
+      "url": "https://huggingface.co/kyutai/pocket-tts/resolve/db04f0e653473e5c7333c69686ac92b7460b0c1d/languages/english_2026-10/model.safetensors",
+      "authenticated": true
+    },
+    {
+      "name": "alba.safetensors",
+      "bytes": 6244152,
+      "sha256": "5850f417028fb2bf6de31e5e395e56ee7a21ac0e52ef31aebd4a6a2847d72e9c",
+      "url": "https://huggingface.co/kyutai/pocket-tts/resolve/db04f0e653473e5c7333c69686ac92b7460b0c1d/languages/english_2026-10/embeddings/alba.safetensors",
+      "authenticated": true
+    },
+    {
+      "name": "tokenizer.json",
+      "bytes": 245020,
+      "sha256": "f498428e1eafee50492f7be13dc9bfafcfc12e508cd0eb1b01c92ecd5d8c6687",
+      "url": "https://huggingface.co/kyutai/pocket-tts-without-voice-cloning/resolve/00eac05ed3d16bdc3f6b5d598874019c34a89214/languages/english_2026-09/tokenizer.json",
+      "authenticated": false
+    },
+    {
+      "name": "runtime.tar.gz",
+      "bytes": 7696220,
+      "sha256": "ee9ca6c7c000ee72c5846e3a8ba01d08f56636d94a614d2259c3f12b8fd69afa",
+      "url": "https://github.com/kyutai-labs/pocket-tts/releases/download/v4.0.1/pocket-tts-3.3.0-aarch64-apple-darwin.tar.gz",
+      "authenticated": false
+    }
+  ]
+}

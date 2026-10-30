@@ -5,6 +5,7 @@
 #import "avatar_plugin.h"
 #import "panel_ui.h"
 #import "window_workspace.h"
+#import "plugin_store.h"
 
 static void pump(void) {
     // WebKit 绘制依赖 AppKit 事件循环；只跑 NSRunLoop 会漏掉窗口可见性与提交事件。
@@ -45,6 +46,60 @@ static BOOL chooseAvatar(CBAvatarController *panel) {
     NSButton *download=[panel valueForKey:@"installButton"],*open=[panel valueForKey:@"openButton"];
     while((panel.busy||(!download.enabled&&(open.hidden||!open.enabled)))&&end.timeIntervalSinceNow>0)pump();
     return !plugin.busy&&[[panel valueForKey:@"page"] isEqual:@"detail"];
+}
+// 私人角色只从已校验目录读取；验证 VRM 驱动状态，共用导航和内存帧检查。
+int CBAvatarModelCheck(NSString *identifier) {
+    NSApplication *app=NSApplication.sharedApplication;
+    [app setActivationPolicy:NSApplicationActivationPolicyRegular];[app finishLaunching];
+    [app activateIgnoringOtherApps:YES];CBWorkspace.shared.animationsEnabled=NO;
+    __block BOOL refreshed=NO;__block NSString *failure=nil;
+    CBRefreshLocalPlugins(^(NSString *error){failure=error;refreshed=YES;});
+    NSDate *end=[NSDate dateWithTimeIntervalSinceNow:90];while(!refreshed&&end.timeIntervalSinceNow>0)pump();
+    NSString *kind=CBLocalPluginNamed(identifier)[@"kind"];
+    if(!refreshed||failure||![kind isEqual:@"avatar"])return 1;
+    CBAvatarController *root=[[CBAvatarController alloc] initWithMemoryCheck:YES];[root present];
+    [tiles(root).firstObject performClick:nil];[tiles(root).firstObject performClick:nil];
+    NSButton *choice=nil;for(NSButton *entry in tiles(root))if([entry.identifier isEqual:identifier])choice=entry;
+    if(!choice)failure=@"角色未出现在角色目录";else [choice performClick:nil];
+    CBAvatarController *panel=root.activeController;id detail=nil;
+    if(!failure){
+        end=[NSDate dateWithTimeIntervalSinceNow:30];NSButton *open=[panel valueForKey:@"openButton"];
+        while((open.hidden||!open.enabled)&&end.timeIntervalSinceNow>0)pump();
+        if(open.hidden||!open.enabled)failure=@"已安装的画面引擎没有开放角色入口";else [open performClick:nil];
+        panel=root.activeController;
+    }
+    NSString *ready=@"Boolean(window.avatarLab?.stats.ready && avatarLab.stats.appearance?.custom && avatarLab.vrm && avatarLab.videoOutput.memoryOnly && !avatarLab.stats.camera && !avatarLab.videoOutput.active)";
+    if(!failure&&!waitFor(panel,ready,60))failure=@"角色在 WebKit 加载失败";
+    NSMutableArray *sizes=[NSMutableArray array];
+    if(!failure){
+        for(NSValue *size in @[[NSValue valueWithSize:NSMakeSize(400,360)],[NSValue valueWithSize:NSMakeSize(320,300)],[NSValue valueWithSize:NSMakeSize(760,440)],[NSValue valueWithSize:NSMakeSize(360,620)]]){
+            NSRect frame=panel.window.frame;frame.size=size.sizeValue;[panel.window setFrame:frame display:YES];[panel.window.contentView layoutSubtreeIfNeeded];
+            NSString *fits=@"(()=>{const ids=['camera','stop','demo','send-video','stop-video','refresh-video'];return document.visibilityState==='visible'&&document.querySelector('#output').width===1280&&document.querySelector('#output').height===720&&Math.abs(avatarLab.camera.aspect-16/9)<.0001&&document.querySelector('#stage').getBoundingClientRect().height>=24&&document.documentElement.scrollWidth<=innerWidth+1&&ids.every(id=>{const r=document.getElementById(id).getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight+1&&r.left>=0&&r.right<=innerWidth+1;});})()";
+            BOOL visible=waitFor(panel,fits,8);BOOL outer=panel.webView.enclosingScrollView==nil;
+            for(NSView *row in @[[panel valueForKey:@"navigation"],[panel valueForKey:@"toolbar"],[panel valueForKey:@"effectsToolbar"]]){
+                if(row.hidden)continue;
+                NSRect r=[row convertRect:row.bounds toView:panel.window.contentView];outer&=NSContainsRect(panel.window.contentView.bounds,r);
+            }
+            [sizes addObject:@{@"width":@(size.sizeValue.width),@"height":@(size.sizeValue.height),@"controls_visible":@(visible&&outer),@"output_size":evaluate(panel,@"[document.querySelector('#output').width,document.querySelector('#output').height]")?:@[]}];
+            CBSaveWindowImage(panel.window,[NSString stringWithFormat:@"model-ui-%.0fx%.0f.png",size.sizeValue.width,size.sizeValue.height],YES);
+            if(!visible||!outer){failure=@"缩放后控制区越界或仍依赖外层滚动";break;}
+        }
+        NSRect frame=panel.window.frame;frame.size=NSMakeSize(400,360);[panel.window setFrame:frame display:YES];
+    }
+    if(!failure){
+        evaluate(panel,@"avatarLab.stats.mode='fixture';avatarLab.apply({face:{head:{x:.1,y:.3,z:.1},eye:{l:0,r:0},pupil:{x:0,y:0},mouth:{shape:{A:.8,I:0,E:0,O:0,U:0}}},framing:{person:true,face:true,faceComplete:true}});void 0");
+        NSString *driven=@"avatarLab.vrm.expressionManager.getValue('aa')>.65 && avatarLab.vrm.expressionManager.getValue('blink')>.85 && Math.abs(avatarLab.vrm.humanoid.getNormalizedBoneNode('neck').quaternion.y)>.05";
+        if(!waitFor(panel,driven,8))failure=@"WebKit 表情驱动失败";
+    }
+    if(!failure){
+        evaluate(panel,@"avatarLab.demo();document.querySelector('#send-video').click();void 0");
+        if(!waitFor(panel,@"Boolean(avatarLab.videoOutput.lastResult?.memoryOnly && avatarLab.videoOutput.sequence>=4)",25))failure=@"角色未到达原生内存帧";
+    }
+    detail=evaluate(panel,@"({composition:window.callbridgeComposition,ready:window.avatarLab?.stats.ready,appearance:window.avatarLab?.stats.appearance,state:window.avatarLab?.motion?.state,target:window.avatarLab?.motion?.target,mode:window.avatarLab?.stats.mode,renders:window.avatarLab?.stats.renders,visibility:document.visibilityState,camera:window.avatarLab?.stats.camera,ack:window.avatarLab?.videoOutput.lastResult,status:document.querySelector('#status')?.textContent})");
+    [root shutdown];BOOL cleanup=stopped(panel);
+    NSDictionary *report=@{@"passed":@(!failure&&cleanup),@"failure":failure?:@"",@"detail":detail?:@{},@"sizes":sizes,@"cleaned_up":@(cleanup),@"physical_media_io":@NO,@"plugin_kind":kind?:@""};
+    NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];fwrite(data.bytes,1,data.length,stdout);fputc('\n',stdout);
+    return failure||!cleanup?1:0;
 }
 int CBAvatarPanelCheck(void) {
     NSApplication *app=NSApplication.sharedApplication;
@@ -135,6 +190,12 @@ int CBAvatarPanelCheck(void) {
             failure=@"WKWebView Holistic 公开图推理失败";
             detail=evaluate(panel,@"({error:window.nativeFixtureError,status:document.querySelector('#status').textContent})");
         } else [checks addObject:@"真实 WebKit WASM/Holistic 公开图推理"];
+    }
+    if(!failure) {
+        // 移位后的 App 可能被 macOS 放在后台；WebKit 会暂停隐藏窗口的动画。
+        // 内存帧检查先确认实际可见，不能把窗口遮挡误判为帧协议或打包失败。
+        [NSApp unhide:nil];[panel.window makeKeyAndOrderFront:nil];[NSApp activateIgnoringOtherApps:YES];
+        if(!waitFor(panel,@"document.visibilityState==='visible'",8))failure=@"测试窗口未可见，不能验证动画帧";
     }
     if(!failure) {
         evaluate(panel,@"avatarLab.demo(); document.querySelector('#send-video').click(); void 0");

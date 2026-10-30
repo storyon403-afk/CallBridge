@@ -3,7 +3,20 @@
 #import "window_workspace.h"
 #import "panel_ui.h"
 #import "avatar_panel.h"
+// 仅诊断声明：通过生产滚动路径验证超长列表末项可达，不模拟第二套排布算法。
+@interface CBWorkspace (CheckScrolling)
+- (void)scrollCapsules:(NSInteger)direction screen:(NSScreen *)screen;
+@end
 static void pump(void) { NSDate *end=[NSDate dateWithTimeIntervalSinceNow:.12];while(end.timeIntervalSinceNow>0)[NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:.01]]; }
+// 发送给本进程窗口的鼠标事件；不注入全局输入，不点击其他应用。
+static void clickCapsule(NSWindow *window) {
+    NSPoint point=NSMakePoint(window.contentView.bounds.size.width/2,16);
+    for(NSNumber *type in @[@(NSEventTypeLeftMouseDown),@(NSEventTypeLeftMouseUp)]){
+        NSEvent *event=[NSEvent mouseEventWithType:type.unsignedIntegerValue location:point modifierFlags:0 timestamp:NSProcessInfo.processInfo.systemUptime windowNumber:window.windowNumber context:nil eventNumber:1 clickCount:1 pressure:1];
+        [NSApp sendEvent:event];
+    }
+}
+static void settle(void) { for(NSUInteger i=0;i<7;i++)pump(); }
 static BOOL sameSize(NSWindow *w) { return fabs(w.frame.size.width-400)<1&&fabs(w.frame.size.height-360)<1; }
 BOOL CBWorkspaceCheck(void) {
     [NSApplication.sharedApplication setActivationPolicy:NSApplicationActivationPolicyRegular];[NSApp finishLaunching];
@@ -45,10 +58,49 @@ BOOL CBWorkspaceCheck(void) {
     CBInstallColumn(form,CBColumn(fields),NO);[space showWindow:form from:nil];pump();NSView *last=fields.lastObject;[last scrollRectToVisible:last.bounds];pump();
     NSScrollView *scroller=last.enclosingScrollView;BOOL scrolls=scroller.documentView.bounds.size.height>scroller.contentSize.height&&NSIntersectsRect(scroller.documentVisibleRect,[last convertRect:last.bounds toView:scroller.documentView]);
     ok&=scrolls;[checks addObject:@{@"long_forms_reach_last_control_without_enlarging_window":@(scrolls)}];[form orderOut:nil];
-    NSMutableArray<NSWindow *> *many=[NSMutableArray new];for(NSUInteger i=0;i<18;i++){NSWindow *w=CBUtilityWindow([NSString stringWithFormat:@"扩展面板 %lu",(unsigned long)i],NSZeroSize,NSZeroSize,NO);[many addObject:w];[space foldWindow:w];}pump();
-    NSUInteger visible=0;CGFloat rowY=-CGFLOAT_MAX;BOOL overflow=YES;
-    for(NSWindow *w in space.capsuleWindows)if(w.visible){visible++;if(rowY==-CGFLOAT_MAX)rowY=w.frame.origin.y;overflow&=fabs(rowY-w.frame.origin.y)<1&&NSContainsRect(w.screen.visibleFrame,w.frame);}
-    overflow&=visible>0&&visible<18;ok&=overflow;[checks addObject:@{@"overflow_keeps_accessible_single_row":@(overflow)}];for(NSWindow *w in many)[space closeWindow:w];
+    NSMutableArray<NSWindow *> *many=[NSMutableArray new];
+    for(NSUInteger i=0;i<5;i++){NSWindow *w=CBUtilityWindow([NSString stringWithFormat:@"扩展面板 %lu",(unsigned long)i],NSZeroSize,NSZeroSize,NO);[many addObject:w];[space foldWindow:w];}pump();
+    BOOL threshold=space.groupCapsuleWindows.count==0;for(NSWindow *w in space.capsuleWindows)threshold&=w.visible;
+    NSWindow *sixth=CBUtilityWindow(@"第六个面板",NSZeroSize,NSZeroSize,NO);[many addObject:sixth];[space foldWindow:sixth];pump();
+    NSWindow *hub=space.groupCapsuleWindows.firstObject;threshold&=space.groupCapsuleWindows.count==1&&hub.visible&&fabs(NSMidX(hub.frame)-NSMidX(hub.screen.visibleFrame))<1;
+    for(NSWindow *w in space.capsuleWindows)threshold&=!w.visible;
+    [checks addObject:@{@"five_inline_six_collapsed":@(threshold)}];ok&=threshold;
+    BOOL firstClick=[hub.contentView acceptsFirstMouse:nil]&&![hub.contentView mouseDownCanMoveWindow];
+    [NSApp deactivate];clickCapsule(hub);pump();BOOL vertical=YES;CGFloat lastY=CGFLOAT_MAX;
+    for(NSWindow *w in space.capsuleWindows){vertical&=w.visible&&NSContainsRect(w.screen.visibleFrame,w.frame)&&w.frame.size.height==32&&fabs(NSMidX(w.frame)-NSMidX(hub.frame))<1&&NSMaxY(w.frame)<lastY;lastY=NSMinY(w.frame);}
+    vertical&=hub.backgroundColor.alphaComponent==0&&NSMidX(hub.frame)<NSMinX(hub.screen.visibleFrame)+130;firstClick&=space.capsuleWindows.firstObject.visible;
+    [checks addObject:@{@"first_mouse_click_without_activation":@(firstClick)}];ok&=firstClick;space.capsulesOnTop=NO;vertical&=hub.level==NSNormalWindowLevel;space.capsulesOnTop=YES;vertical&=hub.level==NSFloatingWindowLevel;
+    [checks addObject:@{@"background_free_vertical_list_and_pin_level":@(vertical)}];ok&=vertical;
+    // 开启真实过渡：移动与展开分段进行，快速反向点击不能留下旧位置或透明条目。
+    clickCapsule(hub);pump();space.animationsEnabled=YES;
+    CGFloat centered=NSMidX(hub.frame);clickCapsule(hub);pump();
+    BOOL motion=NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion||
+        (NSMidX(hub.frame)<centered&&NSMidX(hub.frame)>NSMinX(hub.screen.visibleFrame)+130);
+    settle();motion&=NSMidX(hub.frame)<NSMinX(hub.screen.visibleFrame)+130;
+    clickCapsule(hub);pump();clickCapsule(hub);settle();
+    for(NSWindow *w in space.capsuleWindows)motion&=w.visible&&w.alphaValue>.99&&fabs(NSMidX(w.frame)-NSMidX(hub.frame))<1&&!w.ignoresMouseEvents;
+    clickCapsule(hub);settle();motion&=fabs(NSMidX(hub.frame)-NSMidX(hub.screen.visibleFrame))<1;
+    for(NSWindow *w in space.capsuleWindows)motion&=!w.visible;
+    [checks addObject:@{@"left_move_then_reveal_and_interrupted_animation":@(motion)}];ok&=motion;
+    space.animationsEnabled=NO;clickCapsule(hub);pump();
+    NSWindow *detached=space.capsuleWindows[2];NSRect screen=hub.screen.visibleFrame;
+    [space detachCapsuleForWindow:many[2] origin:NSMakePoint(NSMinX(screen)+20,NSMinY(screen)+60)];NSRect manual=detached.frame;
+    BOOL detach=detached.visible&&space.groupCapsuleWindows.count==0;
+    NSWindow *seventh=CBUtilityWindow(@"新增面板",NSZeroSize,NSZeroSize,NO);[many addObject:seventh];[space foldWindow:seventh];pump();
+    detach&=space.groupCapsuleWindows.count==1&&detached.visible&&NSEqualRects(manual,detached.frame);
+    hub=space.groupCapsuleWindows.firstObject;[(id)hub.contentView accessibilityPerformPress];[space showWindow:many[0] from:nil];pump();
+    detach&=many[0].visible&&sameSize(many[0])&&space.groupCapsuleWindows.count==0&&NSEqualRects(manual,detached.frame);
+    [space showWindow:many[2] from:nil];pump();[space foldWindow:many[2]];pump();BOOL returnPosition=detached.visible&&NSEqualRects(manual,detached.frame);detach&=returnPosition;
+    if(!returnPosition)fprintf(stderr,"detached refold: visible=%d before=%s after=%s\n",detached.visible,NSStringFromRect(manual).UTF8String,NSStringFromRect(detached.frame).UTF8String);
+    [space returnCapsuleForWindow:many[2]];pump();detach&=space.groupCapsuleWindows.count==1&&!detached.visible;
+    [checks addObject:@{@"drag_detaches_without_reclaim_restore_and_return":@(detach)}];ok&=detach;
+    for(NSWindow *w in many){[space closeWindow:w];[w orderOut:nil];}[many removeAllObjects];
+    for(NSUInteger i=0;i<30;i++){NSWindow *w=CBUtilityWindow([NSString stringWithFormat:@"长列表 %lu",(unsigned long)i],NSZeroSize,NSZeroSize,NO);[many addObject:w];[space foldWindow:w];}pump();
+    hub=space.groupCapsuleWindows.firstObject;[(id)hub.contentView accessibilityPerformPress];pump();BOOL overflow=YES;NSUInteger visible=0;
+    for(NSWindow *w in space.capsuleWindows)if(w.visible){visible++;overflow&=NSContainsRect(w.screen.visibleFrame,w.frame);}
+    overflow&=visible>0&&visible<30;[space scrollCapsules:100 screen:hub.screen];pump();overflow&=space.capsuleWindows.lastObject.visible;
+    [space dismissCapsuleGroups];for(NSWindow *w in space.capsuleWindows)overflow&=!w.visible;
+    [checks addObject:@{@"long_list_last_item_accessible_and_dismiss":@(overflow)}];ok&=overflow;for(NSWindow *w in many)[space closeWindow:w];
     CBAvatarController *avatar=[[CBAvatarController alloc] initWithMemoryCheck:NO];[avatar present];pump();
     [NSApp sendAction:NSSelectorFromString(@"showPeople:") to:avatar from:nil];pump();CBAvatarController *people=avatar.activeController;
     [NSApp sendAction:NSSelectorFromString(@"showVirtual:") to:people from:nil];pump();CBAvatarController *list=avatar.activeController;

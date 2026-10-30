@@ -5,7 +5,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
-    io::{Read, Write},
+    io::Write,
     path::Path,
 };
 pub const CATALOG: &str = include_str!("../assets/package.json");
@@ -46,18 +46,9 @@ pub(crate) fn check(root: &Path, a: &Asset) -> Result<()> {
         "资源长度错误: {}",
         a.name
     );
-    let mut f = File::open(path)?;
-    let mut hash = Sha256::new();
-    let mut buf = [0; 65536];
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hash.update(&buf[..n]);
-    }
+    // 使用逐级 O_NOFOLLOW 的共用读取器；总字节数受限，文件增长或父目录链接不能绕过校验。
     ensure!(
-        format!("{:x}", hash.finalize()) == a.sha256,
+        crate::plugins::hash_file(&path, 100_000_000)? == a.sha256,
         "资源摘要不匹配: {}",
         a.name
     );
@@ -75,7 +66,7 @@ pub fn verify(root: &Path, ready: bool) -> Result<()> {
             "插件标记文件无效"
         );
         ensure!(
-            fs::read_to_string(root.join("ready"))? == digest(),
+            crate::plugins::read_file(&root.join("ready"), 64)? == digest().as_bytes(),
             "插件版本不匹配"
         );
     }

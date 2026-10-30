@@ -2,6 +2,7 @@
    不访问麦克风、音频设备或系统路由。每个任务独立进程，停止立即封锁回调后终止推理。
    模型权重与动态库先由 Rust 固定摘要校验；只使用应用包内 helper，不执行下载的脚本。 */
 #import "pocket_provider.h"
+#import "english_provider.h"
 #import "stream_converter.h"
 #import "background_audio.h"
 #import <AVFAudio/AVFAudio.h>
@@ -86,13 +87,14 @@ static NSString *profilePath(NSString *identifier) {
 
 @interface CBPocketTask : NSObject <CBVoiceTask>
 @property(nonatomic) BOOL example;
+@property(nonatomic,strong) CBResourceTask *cleanup;
 @property(nonatomic, copy) NSString *profile;
 @property(atomic) BOOL cancelled;
 @property(nonatomic, strong) CBPocketProcess *process;
 @end
 @implementation CBPocketTask
-- (instancetype)init { if ((self=[super init])) _process=[CBPocketProcess new]; return self; }
-- (void)cancel { self.cancelled=YES; [self.process cancel]; }
+- (instancetype)init { if ((self=[super init])) {_process=[CBPocketProcess new];_cleanup=[CBResourceTask new];} return self; }
+- (void)cancel { self.cancelled=YES; [self.process cancel]; [self.cleanup cancel]; }
 - (void)startText:(NSString *)text chunk:(void (^)(NSData *))chunk completion:(void (^)(NSString *))completion {
     NSData *request = [NSJSONSerialization dataWithJSONObject:@{@"text":text} options:0 error:NULL];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
@@ -111,8 +113,8 @@ static NSString *profilePath(NSString *identifier) {
                     memcpy(pcm.mutableBytes,b+12,(NSUInteger)count*sizeof(float));
                     const float *samples=pcm.bytes;
                     for (uint32_t i=0;i<count;++i) if (!isfinite(samples[i]) || fabsf(samples[i])>1) { error=@"插件产生非法音频"; break; }
-                    if (!error) { CallBridgeStreamConverter *converter=[CallBridgeStreamConverter new];
-                        chunks=[converter convertMono:pcm rate:24000 end:YES error:&error]; }
+                    if (!error) { NSData *processed=CBDenoisePCM24(pcm,self.cleanup,&error);CallBridgeStreamConverter *converter=[CallBridgeStreamConverter new];
+                        if(processed)chunks=[converter convertMono:processed rate:24000 end:YES error:&error]; }
                 }
             } else if (!error) error=@"插件未返回完整音频";
             dispatch_async(dispatch_get_main_queue(), ^{
@@ -127,6 +129,7 @@ static NSString *profilePath(NSString *identifier) {
 }
 @end
 id<CBVoiceTask> CBMakePocketTask(BOOL example) { CBPocketTask *task=[CBPocketTask new]; task.example=example; return task; }
+id<CBVoiceTask> CBMakePocketProfileTask(NSString *path) {CBPocketTask *task=[CBPocketTask new];task.profile=path;return task;}
 id<CBVoiceTask> CBMakePersonalPocketTask(NSString *identifier) {
     CBPocketTask *task=[CBPocketTask new]; task.profile=profilePath(identifier);
     // 不合法 ID 也必须明确失败，不能悄悄退回默认参考音色。

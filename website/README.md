@@ -1,28 +1,34 @@
-# 展示页面
+# 修改展示网站
 
-本地打开：
+在仓库根目录运行：
 
 ```sh
 python3 website/build.py
-open build/site/index.html
+python3 -m http.server 8765 --bind 127.0.0.1 --directory build/site
 ```
 
-展示位在 `website/content.js`。素材放进 `website/media/`，填写路径即可；没有素材就保留 `null`。
+浏览器打开 `http://127.0.0.1:8765/`。不要直接双击 HTML，人物模型需要通过网页服务加载。
 
-```js
-{
-  id: 'avatar',
-  title: { zh: '虚拟形象', en: 'Avatar' },
-  type: 'video',
-  src: 'media/avatar.mp4',
-  poster: 'media/avatar.jpg'
-}
+## 页面内容
+
+- “动手试试”演示人物动作、背景切换、文字发送和插件导入，不会开启麦克风或摄像头。
+- “使用体验”展示中英文操作面板。
+- “微信实录”由使用者点击播放。
+- “个人音色”介绍如何选择声音。
+
+修改文字和展示位请看 `content.js`；页面交互在 `site.js`、`studio.js`，样式在 `style.css`。
+
+## 更新素材
+
+图片和视频放在 `media/`。原生面板图片使用 `ui-*.png` 和 `ui-en-*.png`。修改人物渲染源码后运行：
+
+```sh
+node website/scripts/build-demo.mjs
+python3 website/build.py
 ```
 
-`type` 支持 `experience`（使用体验动画）、`pair`（操作 → 效果）、`image`、`video`。增加条目会自动增加标签。视频由访客主动播放。
+首次依赖准备见根目录 [使用说明](../GETTING_STARTED.md#build-from-source)。提交时一起保留 `media/avatar-viewer.js`、`avatar-viewer.js.LEGAL.txt`、`cheng.vrm` 和 `demo-licenses.txt`，以及 `build.py` 引用的 `assets/demos/` 视频、封面和 `assets/diagrams/04.png`。
 
-GitHub Pages 使用 `.github/workflows/pages.yml`；仓库 Pages 来源选择 GitHub Actions 后，推送网页改动即可发布。当前只完成本地修改，未推送上线。
+## 上传网站
 
-“使用体验”由 `experience.js` 驱动，使用 `media/ui-main.png`、`ui-video.png`、`ui-text.png` 三张中文原生窗口截图；英文页对应 `media/ui-en-main.png`、`ui-en-video.png`、`ui-en-text.png`，页面切换语言时同步切换素材。可替换素材而不改网页结构。原生 `--ui-smoke-capture` 会输出 `rust/build/app/ui-showcase-*.png`，需在本机检查截图后更新展示素材。
-
-英文素材通过原生 `--ui-language-check en` 输出到 `rust/build/app/ui-en-*.png`：使用深色英文界面和英文演示草稿，不合成、不发送。检查截图后只复制 main、video、text 三张到 `website/media/`。
+仓库 Pages 设置选择 **GitHub Actions**。把官网源码和素材推送到 `main` 后，`.github/workflows/pages.yml` 会生成并上传页面。不要提交 `build/site/` 或 Python 缓存目录。

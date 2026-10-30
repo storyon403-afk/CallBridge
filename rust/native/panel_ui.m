@@ -6,6 +6,154 @@
 #import "panel_ui.h"
 #import "theme.h"
 #import "window_workspace.h"
+#import "localization.h"
+
+static BOOL panelTranslucent=NO;
+static NSHashTable<NSWindow *> *panelWindows;
+
+// 与 ftop 相同的系统材质在窗口后方混合；文字和控件保持不透明。
+// 系统“减少透明度”优先于外观偏好，只改变渲染，不覆盖保存的用户选择。
+@interface CBPanelCanvas : NSView
+@property(nonatomic,strong) NSVisualEffectView *glass;
+@property(nonatomic) BOOL rounded;
+- (void)refreshMaterial;
+@end
+@implementation CBPanelCanvas
+- (instancetype)initWithFrame:(NSRect)frame {
+    if((self=[super initWithFrame:frame])){
+        _glass=[[NSVisualEffectView alloc] initWithFrame:self.bounds];
+        _glass.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
+        _glass.material=NSVisualEffectMaterialPopover;
+        _glass.blendingMode=NSVisualEffectBlendingModeBehindWindow;
+        _glass.state=NSVisualEffectStateActive;
+        [self addSubview:_glass];
+        [NSWorkspace.sharedWorkspace.notificationCenter addObserver:self selector:@selector(accessibilityChanged:)
+            name:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification object:nil];
+    }return self;
+}
+- (void)dealloc { [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self]; }
+- (void)accessibilityChanged:(NSNotification *)note { (void)note;[self refreshMaterial]; }
+- (void)viewDidMoveToWindow { [super viewDidMoveToWindow];[self refreshMaterial]; }
+- (void)refreshMaterial {
+    BOOL glass=panelTranslucent&&!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency;
+    self.glass.hidden=!glass;self.window.opaque=!(glass||self.rounded);
+    self.window.backgroundColor=(glass||self.rounded)?NSColor.clearColor:CBWindowColor();
+    self.needsDisplay=YES;
+}
+- (void)drawRect:(NSRect)dirty {
+    if(self.glass.hidden){[CBWindowColor() setFill];NSRectFill(dirty);}
+}
+@end
+BOOL CBPanelTranslucent(void) { return panelTranslucent; }
+void CBRoundTextWindow(NSWindow *window) {
+    // 完整内容覆盖标题栏后，四个角才能使用同一轮廓；透明角不能被窗口底色填回。
+    window.styleMask|=NSWindowStyleMaskFullSizeContentView;
+    window.movable=YES;
+    CBPanelCanvas *canvas=(CBPanelCanvas *)window.contentView;
+    canvas.rounded=YES;canvas.wantsLayer=YES;
+    canvas.layer.cornerRadius=24;canvas.layer.cornerCurve=kCACornerCurveContinuous;
+    canvas.layer.masksToBounds=YES;
+    [canvas refreshMaterial];
+}
+void CBSetPanelTranslucent(BOOL enabled) {
+    panelTranslucent=enabled;
+    for(NSWindow *window in panelWindows)
+        if([window.contentView isKindOfClass:CBPanelCanvas.class])[(CBPanelCanvas *)window.contentView refreshMaterial];
+}
+
+@implementation CBComposerEditor
+- (void)drawRect:(NSRect)dirty {
+    [super drawRect:dirty];
+    if(self.string.length==0&&!self.hasMarkedText)
+        [CBL(@"输入要说的话…") drawInRect:NSMakeRect(self.textContainerInset.width+5,self.textContainerInset.height,
+            MAX(0,self.bounds.size.width-2*self.textContainerInset.width-10),26)
+            withAttributes:@{NSFontAttributeName:self.font?:CBEditorFont(),NSForegroundColorAttributeName:NSColor.placeholderTextColor}];
+}
+- (void)didChangeText { [super didChangeText];self.needsDisplay=YES; }
+- (void)setString:(NSString *)string { [super setString:string];self.needsDisplay=YES; }
+@end
+
+// 单独保留可发现的拖动区域；不拦截编辑器的选字、输入法和按钮事件。
+@interface CBComposerDragHandle : NSView
+@end
+@implementation CBComposerDragHandle
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { (void)event;return YES; }
+- (BOOL)mouseDownCanMoveWindow { return NO; }
+- (void)mouseDown:(NSEvent *)event { [self.window performWindowDragWithEvent:event]; }
+- (void)resetCursorRects { [self addCursorRect:self.bounds cursor:NSCursor.openHandCursor]; }
+- (void)drawRect:(NSRect)dirty {
+    (void)dirty;[NSColor.tertiaryLabelColor setFill];
+    for(NSUInteger column=0;column<2;column++)for(NSUInteger row=0;row<3;row++)
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(NSMidX(self.bounds)-4+column*5,NSMidY(self.bounds)-6+row*5,2,2)] fill];
+}
+@end
+
+@interface CBTextComposer ()
+@property(nonatomic,strong) NSScrollView *editorScroll;
+@property(nonatomic,strong) NSButton *send,*stop,*disclosure;
+@property(nonatomic,strong) NSTextField *status;
+@property(nonatomic,strong) NSView *details;
+@property(nonatomic,strong) CBComposerDragHandle *dragHandle;
+@end
+@implementation CBTextComposer
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstMouse:(NSEvent *)event { (void)event;return YES; }
+- (BOOL)mouseDownCanMoveWindow { return NO; }
+// 只有没有子控件命中的空白处会进入这里，由 AppKit 完成拖动，不自建位置状态。
+- (void)mouseDown:(NSEvent *)event { [self.window performWindowDragWithEvent:event]; }
+- (instancetype)initWithEditor:(NSScrollView *)editor send:(NSButton *)send stop:(NSButton *)stop status:(NSTextField *)status {
+    if((self=[super initWithFrame:NSZeroRect])){
+        _editorScroll=editor;_send=send;_stop=stop;_status=status;
+        _details=[NSView new];_details.hidden=YES;
+        _dragHandle=[CBComposerDragHandle new];_dragHandle.identifier=@"text-drag-handle";
+        _dragHandle.toolTip=CBL(@"拖动移动文字窗");
+        _dragHandle.accessibilityLabel=CBL(@"拖动移动文字窗");
+        _disclosure=[NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"chevron.down" accessibilityDescription:CBL(@"展开语音设置")]
+            target:nil action:nil];
+        _disclosure.bordered=NO;
+        for(NSButton *button in @[send,stop]){
+            button.accessibilityLabel=button.title;
+            button.image=[NSImage imageWithSystemSymbolName:button==send?@"arrow.up.circle.fill":@"stop.circle" accessibilityDescription:button.title];
+            button.imagePosition=NSImageOnly;button.bordered=NO;
+        }
+        editor.drawsBackground=NO;editor.autohidesScrollers=YES;
+        ((NSTextView *)editor.documentView).drawsBackground=NO;
+        status.maximumNumberOfLines=1;status.lineBreakMode=NSLineBreakByTruncatingTail;
+        [status bind:NSToolTipBinding toObject:status withKeyPath:@"stringValue" options:nil];
+        for(NSView *view in @[editor,send,stop,_disclosure,status,_details,_dragHandle])[self addSubview:view];
+        [self setExpanded:NO];
+    }return self;
+}
+- (void)setExpanded:(BOOL)expanded {
+    _expanded=expanded;self.details.hidden=!expanded;
+    NSString *label=expanded?CBL(@"收起语音设置"):CBL(@"展开语音设置");
+    self.disclosure.image=[NSImage imageWithSystemSymbolName:expanded?@"chevron.up":@"chevron.down" accessibilityDescription:label];
+    self.disclosure.accessibilityLabel=label;self.disclosure.toolTip=label;
+    self.disclosure.accessibilityValue=@(expanded);
+    self.needsLayout=YES;
+}
+- (void)layout {
+    [super layout];
+    CGFloat width=self.bounds.size.width,height=self.bounds.size.height;
+    // 紧凑时整个高度留给输入；展开时把额外空间交给滚动设置，操作和状态始终可见。
+    CGFloat inputHeight=self.expanded?MAX(44,MIN(100,height-230)):MAX(44,height-36);
+    self.dragHandle.frame=NSMakeRect(12,6,22,inputHeight);
+    self.editorScroll.frame=NSMakeRect(36,6,MAX(1,width-148),inputHeight);
+    CGFloat y=6+(inputHeight-28)/2;
+    self.send.frame=NSMakeRect(width-106,y,28,28);
+    self.stop.frame=NSMakeRect(width-74,y,28,28);
+    self.disclosure.frame=NSMakeRect(width-40,y,28,28);
+    self.status.frame=NSMakeRect(18,inputHeight+10,MAX(1,width-36),18);
+    self.details.frame=NSMakeRect(0,inputHeight+34,width,MAX(0,height-inputHeight-34));
+}
+- (void)drawRect:(NSRect)dirty {
+    (void)dirty;
+    NSRect rect=NSMakeRect(8,4,self.bounds.size.width-16,NSMaxY(self.editorScroll.frame));
+    [[NSColor.controlBackgroundColor colorWithAlphaComponent:CBPanelTranslucent()?.45:1] setFill];
+    CGFloat radius=MIN(28,rect.size.height/2);
+    [[NSBezierPath bezierPathWithRoundedRect:rect xRadius:radius yRadius:radius] fill];
+}
+@end
 
 @interface CBTileButton : NSButton
 @property(nonatomic, copy) NSString *detail;
@@ -81,6 +229,9 @@ NSWindow *CBUtilityWindow(NSString *title, NSSize size, NSSize minimum, BOOL flo
     window.restorable = NO;
     window.titlebarAppearsTransparent = YES;
     window.backgroundColor = CBWindowColor();
+    window.contentView=[[CBPanelCanvas alloc] initWithFrame:window.contentView.bounds];
+    if(!panelWindows)panelWindows=[NSHashTable weakObjectsHashTable];
+    [panelWindows addObject:window];
     window.level = NSNormalWindowLevel;
     [window setFrame:NSMakeRect(0,0,400,360) display:NO];
     [window center];
@@ -130,11 +281,14 @@ NSTextField *CBSection(NSString *title) {
 - (BOOL)isFlipped { return YES; }
 @end
 void CBInstallColumn(NSWindow *window, NSStackView *column, BOOL fillHeight) {
-    NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:window.contentView.bounds];
+    CBInstallColumnInView(window.contentView,column,fillHeight);
+}
+void CBInstallColumnInView(NSView *host, NSStackView *column, BOOL fillHeight) {
+    NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:host.bounds];
     scroll.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
     scroll.drawsBackground=NO;scroll.hasVerticalScroller=YES;scroll.autohidesScrollers=YES;
     CBFlippedDocument *document=[CBFlippedDocument new];document.translatesAutoresizingMaskIntoConstraints=NO;
-    scroll.documentView=document;[window.contentView addSubview:scroll];
+    scroll.documentView=document;[host addSubview:scroll];
     column.translatesAutoresizingMaskIntoConstraints=NO;[document addSubview:column];
     [NSLayoutConstraint activateConstraints:@[
         [document.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],

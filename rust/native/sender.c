@@ -183,7 +183,7 @@ int32_t cb_preview_available(const char *uid) {
     return status;
 }
 
-// UI 只得到 UID 与显示名，不依赖可能被重新分配的 AudioDeviceID。
+// UI 保存稳定 UID；默认物理输出提示只用于首次选择，不修改或跟随系统路由。
 CFArrayRef cb_copy_preview_devices(void) {
     AudioObjectPropertyAddress address = { kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
         kAudioObjectPropertyElementMain };
@@ -197,6 +197,9 @@ CFArrayRef cb_copy_preview_devices(void) {
     }
     CFMutableArrayRef result = CFArrayCreateMutable(NULL, 0, &kCFTypeArrayCallBacks);
     if (result == NULL) { free(devices); return NULL; }
+    AudioDeviceID defaultOutput = kAudioObjectUnknown;
+    UInt32 defaultSize = sizeof(defaultOutput);
+    read_property(kAudioObjectSystemObject, kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, &defaultSize, &defaultOutput);
     for (UInt32 index = 0; index < size / sizeof(AudioDeviceID); ++index) {
         CFStringRef uid = NULL, name = NULL;
         UInt32 length = sizeof(uid);
@@ -205,9 +208,11 @@ CFArrayRef cb_copy_preview_devices(void) {
             length = sizeof(name);
             if (read_property(devices[index], kAudioObjectPropertyName, kAudioObjectPropertyScopeGlobal,
                 &length, &name) == noErr && name != NULL) {
-                const void *keys[] = { CFSTR("uid"), CFSTR("name") };
-                const void *values[] = { uid, name };
-                CFDictionaryRef entry = CFDictionaryCreate(NULL, keys, values, 2,
+                UInt32 transport = 0, transportSize = sizeof(transport);
+                read_property(devices[index], kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal, &transportSize, &transport);
+                const void *keys[] = { CFSTR("uid"), CFSTR("name"), CFSTR("isDefault"), CFSTR("builtIn") };
+                const void *values[] = { uid, name, devices[index] == defaultOutput ? kCFBooleanTrue : kCFBooleanFalse, transport == kAudioDeviceTransportTypeBuiltIn ? kCFBooleanTrue : kCFBooleanFalse };
+                CFDictionaryRef entry = CFDictionaryCreate(NULL, keys, values, 4,
                     &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
                 if (entry != NULL) { CFArrayAppendValue(result, entry); CFRelease(entry); }
             }

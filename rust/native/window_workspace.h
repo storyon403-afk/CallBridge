@@ -17,9 +17,18 @@ extern const NSSize CBWorkspaceDefaultSize;
 - (void)refreshActivity;
 - (void)arrangeCapsules;
 - (NSArray<NSWindow *> *)capsuleWindows;
+// 手动拖出的标签不再参与自动收纳；只在本次进程保留位置。
+- (void)detachCapsuleForWindow:(NSWindow *)window origin:(NSPoint)origin;
+- (void)returnCapsuleForWindow:(NSWindow *)window;
+- (void)dismissCapsuleGroups;
+- (NSArray<NSWindow *> *)groupCapsuleWindows;
 - (void)shutdown;
 @end
 @interface CBManagedWindow : NSWindow
+// 文字长条有自己的恢复尺寸和折叠阈值；零阈值沿用普通面板的 252×168。
+@property(nonatomic) NSSize workspaceSize;
+@property(nonatomic) BOOL keepsCompactSize;
+@property(nonatomic) NSSize workspaceFoldSize;
 - (void)workspaceOrderFront;
 @end
 void CBShowWindow(NSWindow *window, id sender);

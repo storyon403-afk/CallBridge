@@ -4,10 +4,10 @@ import {readFile,realpath,open} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import {randomBytes} from 'node:crypto';
+import {randomBytes,createHash} from 'node:crypto';
 import {CameraBridge} from './camera-bridge.mjs';
 const root=process.env.CB_AVATAR_ASSETS??fileURLToPath(new URL('../../build/avatar/',import.meta.url));
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm','.json':'application/json','.jpg':'image/jpeg','.txt':'text/plain; charset=utf-8','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm'};
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm','.json':'application/json','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.txt':'text/plain; charset=utf-8','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm'};
 export async function startServer(port=5778,{camera=new CameraBridge(),backgroundFile=process.env.CB_BACKGROUND_FILE??null}={}){
  const base=await realpath(root);
  const plugin=process.env.CB_AVATAR_PLUGIN?await realpath(process.env.CB_AVATAR_PLUGIN):null;
@@ -38,11 +38,20 @@ export async function startServer(port=5778,{camera=new CameraBridge(),backgroun
  const server=http.createServer(async(req,res)=>{
   try{
    if(req.headers.host!==`127.0.0.1:${server.address().port}`){res.writeHead(403);return res.end();}
+   // 所有资源（含会话令牌）都拒绝跨站读取，Host 校验同时拒绝 DNS rebinding。
+   if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)){res.writeHead(403);return res.end();}
    const url=new URL(req.url,'http://127.0.0.1');const rel=decodeURIComponent(url.pathname);
+   if((rel==='/character/info'||rel==='/character/model')&&['GET','HEAD'].includes(req.method)){
+    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)){res.writeHead(403);return res.end();}
+    const filename=process.env.CB_CHARACTER_FILE,sha=process.env.CB_CHARACTER_SHA,bytes=Number(process.env.CB_CHARACTER_BYTES);
+    if(!filename||!/^[a-f0-9]{64}$/.test(sha??'')||!Number.isSafeInteger(bytes)||bytes<24||bytes>64*1024*1024)throw Error('character');
+    if(rel==='/character/info')return json(res,200,{sha256:sha,bytes});
+    const file=await open(filename,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);try{const stat=await file.stat();if(!stat.isFile()||stat.size!==bytes)throw Error('character size');const data=Buffer.alloc(bytes);let offset=0;while(offset<bytes){const {bytesRead}=await file.read(data,offset,bytes-offset,offset);if(!bytesRead)break;offset+=bytesRead;}if(offset!==bytes||(await file.stat()).size!==bytes)throw Error('character changed');if(data.length!==bytes||createHash('sha256').update(data).digest('hex')!==sha)throw Error('character hash');res.writeHead(200,{'Content-Type':'application/octet-stream','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(req.method==='HEAD'?undefined:data);}finally{await file.close();}
+   }
    if(rel==='/background/custom'&&['GET','HEAD'].includes(req.method)){
     if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)){res.writeHead(403);return res.end();}
     // 只读取宿主文件选择器传入的一份素材；HTTP 不接受路径，也不能列出私人目录。
-    if(!backgroundFile||!['.mp4','.mov','.webm'].includes(path.extname(backgroundFile).toLowerCase()))throw Error('background');
+    if(!backgroundFile||!['.mp4','.mov','.webm','.png','.jpg','.jpeg'].includes(path.extname(backgroundFile).toLowerCase()))throw Error('background');
     return await media(backgroundFile,req,res);
    }
    if(rel==='/camera/info'&&req.method==='GET'){
@@ -90,6 +99,7 @@ export async function startServer(port=5778,{camera=new CameraBridge(),backgroun
  return server;
 }
 if(process.argv[1]===fileURLToPath(import.meta.url)){
+ if(Number(process.versions.node.split('.')[0])<22)throw Error('需要 Node.js 22+');
  const port=Number(process.env.CB_AVATAR_PORT??5778);if(!Number.isInteger(port)||port<0||port>65535)throw Error('端口无效');
  const target=process.env.CB_AVATAR_CAMERA??'callbridge';
  // 原生宿主通过私有 stdin 管道持有服务；宿主退出/崩溃的 EOF 也必须关闭发送器。

@@ -6,6 +6,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 publish = false
+license = "PolyForm-Noncommercial-1.0.0"
 
 [dependencies]
 # 用严格的结构化解析拒绝重复/未知字段，不自行编写 JSON 解析器。

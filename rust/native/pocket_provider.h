@@ -14,6 +14,7 @@ id<CBVoiceTask> CBMakePocketTask(BOOL example);
 BOOL CBIsPocketVoice(NSString *identifier);
 NSArray<NSDictionary *> *CBPocketPersonalVoices(void);
 id<CBVoiceTask> CBMakePersonalPocketTask(NSString *identifier);
+id<CBVoiceTask> CBMakePocketProfileTask(NSString *path);
 // 主线程发起/取消，后台文件处理与推理；完成回到主线程，取消也回调一次以释放 UI 忙碌状态。
 @protocol CBPocketOperation <NSObject>
 - (void)cancel;

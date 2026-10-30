@@ -25,7 +25,8 @@ static BOOL local_path(id value) {
 
 NSDictionary *CBDefaultSettings(void) {
     return @{
-        @"schema_version": @1, @"ui_language": @"zh-Hans", @"voice_id": @"", @"prosody_mode": @0,
+        @"speech_output_mode":@"clean",@"speech_denoise":@YES,@"denoise_strength":@0.5,@"denoise_plugin":@"",
+        @"panel_background": @"solid", @"schema_version": @1, @"ui_language": @"zh-Hans", @"voice_id": @"", @"prosody_mode": @0,
         @"send_uid": @"CallBridgeLink_UID", @"preview_uid": @"", @"microphone_uid": @"",
         @"speech_gain": @1, @"background_gain": @0.1, @"environment_gain": @0.25,
         @"background_loop": @YES, @"pin_text": @YES, @"video_target": @"obs",
@@ -39,6 +40,13 @@ NSDictionary *CBNormalizeSettings(id value) {
     if (![value isKindOfClass:NSDictionary.class]
         || !number_value(value[@"schema_version"], 1, 1)) return result;
     if ([@[@"zh-Hans", @"en", @"ja"] containsObject:value[@"ui_language"]]) result[@"ui_language"] = value[@"ui_language"];
+    if ([@[@"solid", @"glass"] containsObject:value[@"panel_background"]]) result[@"panel_background"] = value[@"panel_background"];
+    // 新版首次迁移统一使用清晰输出；旧版默认关闭降噪不能解释为主动选了带噪特色。
+    // 模式是唯一来源，兼容布尔值只从模式派生，避免两个字段互相矛盾。
+    if([@[@"clean",@"original"] containsObject:value[@"speech_output_mode"]])result[@"speech_output_mode"]=value[@"speech_output_mode"];
+    result[@"speech_denoise"]=@([result[@"speech_output_mode"] isEqual:@"clean"]);
+    if(number_value(value[@"denoise_strength"],0,0.8))result[@"denoise_strength"]=value[@"denoise_strength"];
+    if(text_value(value[@"denoise_plugin"],100))result[@"denoise_plugin"]=value[@"denoise_plugin"];
     // 字段允许单独失效；不能让一个坏音量覆盖其他有效选择。
     for (NSString *key in @[@"voice_id", @"preview_uid", @"microphone_uid"])
         if (text_value(value[key], 1024)) result[key] = value[key];
@@ -51,8 +59,9 @@ NSDictionary *CBNormalizeSettings(id value) {
     if([composition isKindOfClass:NSDictionary.class]){
         NSMutableDictionary *accepted=[result[@"video_composition"] mutableCopy];
         if([@[@"none",@"avatar"] containsObject:composition[@"person"]])accepted[@"person"]=composition[@"person"];
-        if([@[@"original",@"plate",@"sample",@"parallax",@"custom"] containsObject:composition[@"background"]])accepted[@"background"]=composition[@"background"];
+        if([@[@"original",@"plate",@"sample",@"parallax",@"custom",@"image"] containsObject:composition[@"background"]])accepted[@"background"]=composition[@"background"];
         if(local_path(composition[@"path"]))accepted[@"path"]=composition[@"path"];
+        for(NSString *key in @[@"avatar_plugin",@"background_plugin"])if(text_value(composition[key],100)&&[composition[key] length]>0)accepted[key]=composition[key];
         result[@"video_composition"]=accepted;
     }
     if (number_value(value[@"prosody_mode"], 0, 5)

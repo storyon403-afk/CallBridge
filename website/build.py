@@ -8,7 +8,7 @@ SOURCE = ROOT / 'website'
 OUTPUT = ROOT / 'build/site'
 OUTPUT.mkdir(parents=True, exist_ok=True)
 (OUTPUT / 'media').mkdir(exist_ok=True)
-for name in ('index.html', 'style.css', 'site.js', 'content.js', 'experience.js'):
+for name in ('index.html', 'style.css', 'site.js', 'content.js', 'experience.js', 'studio.js'):
     shutil.copy2(SOURCE / name, OUTPUT / name)
 # 产品图标保持原文件；动画是单独的小体积展示资源，不把引擎打进网页。
 shutil.copy2(ROOT / 'icon/icon.png', OUTPUT / 'media/icon.png')
@@ -17,7 +17,7 @@ for index in range(1, 4):
     shutil.copy2(ROOT / f'assets/demos/effect-{index:02}-local.mp4', OUTPUT / f'media/effect-{index:02}.mp4')
     shutil.copy2(ROOT / f'assets/demos/effect-{index:02}-poster.jpg', OUTPUT / f'media/effect-{index:02}-poster.jpg')
 for path in (SOURCE / 'media').iterdir():
-    if path.is_file() and path.suffix.lower() in ('.mp4', '.webm', '.jpg', '.png', '.webp', '.gif', '.svg'):
+    if path.is_file() and (path.suffix.lower() in ('.mp4', '.webm', '.jpg', '.png', '.webp', '.gif', '.svg') or path.name in ('avatar-viewer.js', 'avatar-viewer.js.LEGAL.txt', 'cheng.vrm', 'demo-licenses.txt')):
         shutil.copy2(path, OUTPUT / 'media' / path.name)
 (OUTPUT / '.nojekyll').write_text('')
 print(OUTPUT)

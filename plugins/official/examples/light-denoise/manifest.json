@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "api": 1,
+  "id": "org.callbridge.light-denoise",
+  "version": "1.0.0",
+  "name": "轻度降噪样例",
+  "kind": "audio-denoise",
+  "core_min": "0.13.11",
+  "core_max": "0.14.0",
+  "platforms": [
+    "any"
+  ],
+  "dependencies": [],
+  "permissions": [],
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "CallBridge",
+  "entry": "settings.json",
+  "files": [
+    {
+      "path": "settings.json",
+      "bytes": 60,
+      "sha256": "9a6b225b19890f89ef22045e42c309808f6ae5d7d4214a669158f92147dcf330"
+    }
+  ]
+}

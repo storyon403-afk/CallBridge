@@ -8,6 +8,8 @@ xcuserdata/
 *.dSYM/
 *.pkg
 *.dmg
+__pycache__/
+*.py[cod]
 
 # configuration of env
 .env
@@ -47,3 +49,10 @@ UI.md
 question.md
 
 BackGround.md
+
+RELEASE_READINESS.md
+
+# 检测过程留给维护者，公开说明只保留安装、使用及必要许可信息。
+release/VALIDATION.md
+
+RELESASING.md

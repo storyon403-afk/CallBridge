@@ -8,7 +8,7 @@ const BYTES=1280*720*4;
 const built=fileURLToPath(new URL('../../build/camera/CallBridge Camera.app/Contents/MacOS/callbridge-camera-sender',import.meta.url));
 const installed='/Applications/CallBridge Camera.app/Contents/MacOS/callbridge-camera-sender';
 export class CameraBridge {
- constructor({memoryOnly=false,executable,target='callbridge'}={}){if(!['callbridge','obs'].includes(target))throw Error('未知摄像头目标');this.target=target;this.label=target==='obs'?'OBS Virtual Camera（本地测试）':'CallBridge Camera';this.memoryOnly=memoryOnly;this.executable=executable;this.epoch=0;this.owner=null;this.child=null;this.session=null;this.busy=false;this.waiter=null;this.error=null;}
+ constructor({memoryOnly=false,executable,target='callbridge'}={}){if(!['callbridge','obs'].includes(target))throw Error('未知摄像头目标');this.target=target;this.label=target==='obs'?'OBS Virtual Camera':'CallBridge Camera';this.memoryOnly=memoryOnly;this.executable=executable;this.epoch=0;this.owner=null;this.child=null;this.session=null;this.busy=false;this.waiter=null;this.error=null;}
  async path(){if(this.executable)return this.executable;if(this.target==='obs'){await access(built);return built;}try{await access(installed);return installed;}catch{await access(built);return built;}}
  async status(){return {...await this.deviceStatus(),label:this.label};}
  async deviceStatus(){

@@ -6,7 +6,7 @@
 回调必须同时匹配当前代次和当前状态，才能继续播放。可以把代次理解为订单号。
 
 为什么用 u32 状态而不是把 Rust enum 直接交给 C？
-固定宽度数字配合 repr(C)，让 C 头文件容易描述同一块内存：0 空闲、1 准备、2 播放。
+固定宽度数字配合 repr(C)，让 C 头文件容易描述同一块内存：0 空闲、1 合成、2 播放、3 已备好、4 倒计时。
 这是主线程独占的状态机，不是线程安全容器；主线程以外的结果应先切回主线程。
 
 错误码：-1 文本/参数错误；-2 正忙；-3 代次或状态不符；-4 代次已耗尽。
@@ -76,6 +76,54 @@ pub unsafe extern "C" fn cb_session_ready(session: *mut Session, generation: u64
     unsafe { &mut *session }.transition(generation, 1, 2)
 }
 
+// 待发模式只扩展同一会话，原生层不另建播放状态机；PCM 仍由原生缓冲拥有。
+#[unsafe(no_mangle)]
+// 合成全部完成才进入待发；不打开设备。session 须主线程独占且有效对齐。
+pub unsafe extern "C" fn cb_session_prepared(session: *mut Session, generation: u64) -> i32 {
+    let Some(session) = (unsafe { session.as_mut() }) else {
+        return -1;
+    };
+    session.transition(generation, 1, 3)
+}
+#[unsafe(no_mangle)]
+// 倒计时只接受已备好的一句；计时结束仍需调用方复核授权与设备 UID。
+pub unsafe extern "C" fn cb_session_countdown(session: *mut Session, generation: u64) -> i32 {
+    let Some(session) = (unsafe { session.as_mut() }) else {
+        return -1;
+    };
+    session.transition(generation, 3, 4)
+}
+#[unsafe(no_mangle)]
+// 过期倒计时回到待发，不允许晚到计时器自行播出。
+pub unsafe extern "C" fn cb_session_wait_prepared(session: *mut Session, generation: u64) -> i32 {
+    let Some(session) = (unsafe { session.as_mut() }) else {
+        return -1;
+    };
+    session.transition(generation, 4, 3)
+}
+#[unsafe(no_mangle)]
+// 快捷键或明确点击触发；不接受合成中、播放中或取消后的请求。
+pub unsafe extern "C" fn cb_session_play_prepared(session: *mut Session, generation: u64) -> i32 {
+    let Some(session) = (unsafe { session.as_mut() }) else {
+        return -1;
+    };
+    if session.state != 3 && session.state != 4 {
+        return -3;
+    }
+    session.transition(generation, session.state, 2)
+}
+#[unsafe(no_mangle)]
+// 本机试听后保留同一份 PCM，之后发送不重新合成；实际发送完则走 finish。
+pub unsafe extern "C" fn cb_session_preview_finished(
+    session: *mut Session,
+    generation: u64,
+) -> i32 {
+    let Some(session) = (unsafe { session.as_mut() }) else {
+        return -1;
+    };
+    session.transition(generation, 2, 3)
+}
+
 #[unsafe(no_mangle)]
 // 播放完成：仅允许当前任务从 2（播放）回到 0（空闲）。
 pub unsafe extern "C" fn cb_session_finish(session: *mut Session, generation: u64) -> i32 {
@@ -98,6 +146,48 @@ pub unsafe extern "C" fn cb_session_cancel(session: *mut Session) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepared_preview_countdown_and_single_send_share_one_generation() {
+        let mut s = Session::default();
+        assert_eq!(s.begin("先试听，再录入"), 0);
+        let g = s.generation;
+        unsafe {
+            assert_eq!(cb_session_play_prepared(&mut s, g), -3);
+            assert_eq!(cb_session_prepared(&mut s, g), 0);
+            assert_eq!(cb_session_play_prepared(&mut s, g), 0);
+            assert_eq!(cb_session_play_prepared(&mut s, g), -3);
+            assert_eq!(cb_session_preview_finished(&mut s, g), 0);
+            assert_eq!(cb_session_countdown(&mut s, g), 0);
+            assert_eq!(cb_session_wait_prepared(&mut s, g), 0);
+            assert_eq!(cb_session_countdown(&mut s, g), 0);
+            assert_eq!(cb_session_play_prepared(&mut s, g), 0);
+            assert_eq!(cb_session_finish(&mut s, g), 0);
+            assert_eq!(cb_session_play_prepared(&mut s, g), -3);
+        }
+    }
+    #[test]
+    fn cancel_invalidates_waiting_and_countdown_even_after_new_task() {
+        for countdown in [false, true] {
+            let mut s = Session::default();
+            assert_eq!(s.begin("旧句"), 0);
+            let old = s.generation;
+            unsafe {
+                assert_eq!(cb_session_prepared(&mut s, old), 0);
+                if countdown {
+                    assert_eq!(cb_session_countdown(&mut s, old), 0);
+                }
+                cb_session_cancel(&mut s);
+                assert_eq!(s.begin("新句"), 0);
+                let new = s.generation;
+                assert_eq!(cb_session_prepared(&mut s, new), 0);
+                assert_eq!(cb_session_play_prepared(&mut s, old), -3);
+                assert_eq!(cb_session_countdown(&mut s, old), -3);
+                assert_eq!(cb_session_wait_prepared(&mut s, old), -3);
+                assert_eq!(s.state, 3);
+            }
+        }
+    }
 
     #[test]
     fn rejects_empty_whitespace_and_overlong_text() {

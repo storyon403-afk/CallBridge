@@ -36,7 +36,6 @@
 "下载 · 161 MB" = "Download · 161 MB";
 "使用中" = "In use";
 "使用 Pocket" = "Use Pocket";
-"试听示例音频" = "Preview sample";
 "试听音色" = "Preview voice";
 "（含真实环境，持续）" = " (with continuous ambient audio)";
 "（含背景音，持续）" = " (with continuous background audio)";
@@ -95,7 +94,7 @@
 "目标已选择 · 请让通话软件使用同名输入，再勾选允许发送。" = "Target selected. Choose the matching input in your call app, then allow sending.";
 "正在取消下载…" = "Cancelling download…";
 "Pocket 已下载 · 点击“使用 Pocket”启用，然后可试听示例" = "Pocket downloaded. Select Use Pocket, then preview the sample.";
-"Pocket 已选择 · 可点击“试听示例音频”，或输入文字发送" = "Pocket selected. Preview the sample or type to speak.";
+"Pocket 已选择 · 可点击“试听音色”，或输入文字发送" = "Pocket selected. Preview the voice or type to speak.";
 "试听设备已离线或格式不支持，请刷新；不会切换到其他输出。" = "Preview device is offline or unsupported. Refresh; no other output will be used.";
 "设备清理失败（%d），已禁止继续发送。%@请退出程序。" = "Device cleanup failed (%d). Further sending is disabled. %@Please quit the app.";
 "真实麦克风可能仍被占用。" = "The physical microphone may still be in use. ";
@@ -170,9 +169,9 @@
 "背景素材已从内存移除；源文件未修改。" = "Background removed from memory. The source file is unchanged.";
 "背景音量更新失败，已停止全部输出。" = "Could not update background volume. All output stopped.";
 "让通话软件接收 CallBridge" = "Connect CallBridge to your call app";
-"软件使用独立的隐藏写入端，通话软件选择公开的 CallBridge Microphone 输入，不需要寻找 Writer 或更改输出。" = "CallBridge uses a separate hidden writer. Select the public CallBridge Microphone input in your call app; do not look for Writer or change the output.";
-"BlackHole 2ch 与 16ch 是不同设备，两端必须使用同名版本；本机微信曾出现 BlackHole 有电平但对端无声，可选择 CallBridge Microphone 路线对照。" = "BlackHole 2ch and 16ch are separate devices; use the same version at both ends. WeChat has previously shown levels without remote audio on this Mac; compare with CallBridge Microphone if needed.";
-"1. 当前目标：%@。%@选择菜单不会安装驱动或修改系统默认设备。\n\n2. 若微信没有麦克风菜单，可手动在“系统设置 → 声音 → 输入”选择 %@。这会影响使用默认输入的其他应用；先记住原设备，测试后自行恢复。输出仍选耳机或扬声器，不要选虚拟设备。\n\n3. 设置输入后重新发起通话，再用 ./CB route-check 只读核对微信实际设备。默认输入、电平跳动、本地发送完成，都不代表对端收到。\n\n4. 勾选允许发送，输入短句并点击发送，让对方复述。\n\n本说明不修改设置、不发声。试听只在本机播放；背景导入后点击“播放背景”并确认，即可独立持续发送。" = "1. Current target: %@. %@Selecting a target does not install drivers or change system defaults.\n\n2. If WeChat has no microphone selector, you can manually choose %@ in System Settings → Sound → Input. This affects other apps using the default input; note the original device and restore it after testing. Keep headphones or speakers as output, not a virtual device.\n\n3. Start a new call after changing input. Use ./CB route-check to inspect WeChat's active device without changing it. Default input, moving meters, or local completion do not prove remote receipt.\n\n4. Allow sending, type a short sentence, and send it. Ask the other person to repeat it.\n\nThis guide changes no settings and plays no sound. Preview plays locally; imported background audio starts only after Play background and confirmation.";
+"通话软件的麦克风选择 CallBridge Microphone。" = "Choose CallBridge Microphone as the microphone in your call app.";
+"BlackHole 2ch 与 16ch 是不同设备，两边请选择同一个。" = "BlackHole 2ch and 16ch are different devices. Select the same one in both apps.";
+"先试听：输入文字，点“试听这段”；在“本机试听”选择扬声器或耳机。\n\n通话：当前目标 %@。%@若客户端没有输入菜单，可在“系统设置 → 声音 → 输入”选择 %@。这会影响使用默认输入的其他应用；输出仍选耳机或扬声器。勾选允许发送，再点击发送。\n\n聊天录音：点“准备语音”，勾选允许发送；切到 QQ／微信按住录音，按 ⌃⌥⌘P 播放，⌃⌥⌘. 停止。也可用“5 秒后播放”留出切换时间。\n\n清晰输出：在“语音输出”选择降噪效果；人声增强插件需先导入。背景文件导入后，点“播放背景”才开始播放。\n\n视频：在“画面处理”选择“澄 · 通话装”，开启预览和画面输出，再在通话软件选择 OBS Virtual Camera。仅换背景时，人物选择“不替换人物”。" = "Preview: Type your text and click Preview text. Choose speakers or headphones under Local preview.\n\nCalls: Current target: %@. %@If the chat app has no input selector, choose %@ in System Settings → Sound → Input. This affects other apps using the default input; keep speakers or headphones as the output. Enable sending, then click Send.\n\nVoice messages: Prepare the speech and enable sending. Switch to QQ or WeChat, hold its record button, then press ⌃⌥⌘P to play or ⌃⌥⌘. to stop. Play in 5 seconds gives you time to switch.\n\nClean output: Choose noise reduction under Speech output. Import the speech enhancement plugin first. Imported background audio starts only when you click Play background.\n\nVideo: Under Video effects, choose Cheng · Call outfit, start the preview and video output, then select OBS Virtual Camera in the call app. For background replacement only, choose Keep real person.";
 "知道了" = "OK";
 "CallBridge 主面板" = "CallBridge Main";
 "保持在普通窗口上方，不注册全局快捷键" = "Keep above normal windows; no global shortcut is registered";
@@ -428,3 +427,147 @@
 "音色参数超出允许范围。" = "Voice parameters exceed allowed limits.";
 "韵律模式或任务代次无效。" = "Invalid prosody mode or task generation.";
 "合成超时" = "Synthesis timed out";
+
+/* 英文模型与本地插件导入 */
+"Pocket English" = "Pocket English";
+"Pocket English · 下载中" = "Pocket English · Downloading";
+"Pocket English · 使用中" = "Pocket English · In use";
+"Pocket English · 已下载" = "Pocket English · Downloaded";
+"Pocket English · 未下载" = "Pocket English · Not downloaded";
+"Pocket English · 检查中" = "Pocket English · Checking";
+"Pocket English · 需检查" = "Pocket English · Needs attention";
+"Pocket 中文" = "Pocket Chinese";
+"Pocket 语音降噪" = "Pocket speech denoise";
+"下载 · 233 MB" = "Download · 233 MB";
+"下载英文模型" = "Download English model";
+"中文个人音色" = "Chinese personal voice";
+"中文语音引擎" = "Chinese speech engine";
+"仅接受 CallBridge 锁定的 Pocket 中文资源，完整文件与摘要必须一致。不能导入任意 ONNX 模型。" = "Only the Pocket Chinese resources pinned by CallBridge are accepted. All files and hashes must match. Arbitrary ONNX models are not supported.";
+"支持轻度降噪参数包，或带锁定官方程序的人声增强包。拒绝任意脚本和替换程序；只处理 Pocket 合成语音。" = "Supports light denoise presets or speech enhancement packs with the pinned official runtime. Arbitrary scripts and replacement programs are rejected. Applies only to Pocket speech.";
+"仅接受完整 Holistic 引擎资源包，版本和摘要必须匹配；第三方脚本不受支持。" = "Only the complete pinned Holistic engine is accepted. Version and hashes must match. Third-party scripts are not supported.";
+"仅接受官方英文 2026.10 模型与锁定运行程序；需有模型使用授权。不能替换执行文件或模型配置。" = "Only the official English 2026.10 model and pinned runtime are accepted. Model access permission is required. Executables and model configuration cannot be replaced.";
+"仅接受官方英文 2026.10 模型导出的 Float32 safetensors 音色，最多 16 MB。需要先安装英文引擎。" = "Requires a Float32 safetensors voice exported by the official English 2026.10 model, up to 16 MB. Install the English engine first.";
+"仅接受当前 Pocket 中文模型导出的 JSON 音色特征，不能使用旧参数预设。需要先安装中文引擎。" = "Requires a JSON voice profile from the current Pocket Chinese model. Legacy parameter presets are not supported. Install the Chinese engine first.";
+"使用英文模型" = "Use English model";
+"参考录音轻度降噪" = "Lightly denoise reference";
+"只读令牌（本机已登录可留空）" = "Read-only token (optional if signed in locally)";
+"图片背景" = "Image background";
+"导入本地插件" = "Import local plugin";
+"导入本地插件…" = "Import local plugin…";
+"导入音色插件…" = "Import voice plugin…";
+"所选角色插件不可用，请重新导入或选择" = "Selected character is unavailable. Import it again or choose another.";
+"打开授权页" = "Open access page";
+"插件已导入，请选择使用" = "Plugin imported. Select it to use.";
+"本地插件" = "Local plugins";
+"画面引擎" = "Video engine";
+"约 233 MB；安装约 246 MB。请先在 Hugging Face 的 kyutai/pocket-tts 页面同意模型条款。本机已登录可直接继续，否则在下方输入只读令牌；令牌仅用于本次下载。" = "Download: about 233 MB. Installed: about 246 MB. Accept the model terms on Hugging Face's kyutai/pocket-tts page first. Continue if signed in locally, or enter a read-only token below. The token is used only for this download.";
+"背景音插件已导入，点击播放背景使用" = "Background audio imported. Choose Play background to use it.";
+"英文个人音色" = "English personal voice";
+"英文语音引擎" = "English speech engine";
+"英文资源 %lu/%lu" = "English resources %lu/%lu";
+"英文资源已检查，可选择使用" = "English resources checked. Ready to select.";
+"虚拟角色" = "Virtual character";
+"视频背景" = "Video background";
+"语音降噪" = "Speech denoise";
+"请先在音频面板下载英文模型" = "Download the English model in the Audio panel first.";
+"请选择类型，并查看对应导入要求。" = "Choose a type to see its import requirements.";
+"轻度降噪" = "Light denoise";
+"选择包含 manifest.json 的文件夹或 ZIP/.cbplugin 包。清单需写明类型、版本、作者、许可、兼容范围、依赖及每个文件的 SHA256。禁止链接、路径越界、未声明文件与额外权限；安装后再选择使用。" = "Choose a folder containing manifest.json or a ZIP/.cbplugin package. The manifest must declare type, version, author, license, compatibility, dependencies and SHA256 for each file. Links, path traversal, undeclared files and extra permissions are rejected. Select the plugin after installation to use it.";
+"选择插件…" = "Choose plugin…";
+"降噪插件不可用" = "Denoise plugin is unavailable";
+"需要 30 秒内、单/双声道 PCM WAV，8–192 kHz、最多 32 MiB。导入后由混音面板控制播放。" = "Requires mono/stereo PCM WAV, up to 30 seconds, 8–192 kHz and 32 MiB. Playback is controlled in the Mix panel.";
+"需要 MP4/MOV/WebM，最多 64 MiB、1080p、120 秒；忽略音轨。需要画面引擎。" = "Requires MP4/MOV/WebM, up to 64 MiB, 1080p and 120 seconds. Audio is ignored. Requires the video engine.";
+"需要 PNG/JPEG，最多 16 MiB、4096×4096；背景始终静音。需要画面引擎。" = "Requires PNG/JPEG, up to 16 MiB and 4096×4096. Backgrounds are always silent. Requires the video engine.";
+"需要自包含 VRM 0.x/1.0，最多 64 MiB，完整 humanoid 骨架；纹理必须内嵌，禁止远程地址和脚本。需要画面引擎。" = "Requires self-contained VRM 0.x/1.0, up to 64 MiB, with a complete humanoid skeleton. Textures must be embedded. Remote URLs and scripts are prohibited. Requires the video engine.";
+"音色插件已导入，请回音频面板选择" = "Voice imported. Select it in the Audio panel.";
+"中文音色编码器" = "Chinese voice encoder";
+"仅接受锁定的 mimi_encode.onnx，约 39 MB；用于创建中文个人音色，不能替换为其他编码器。" = "Only the pinned mimi_encode.onnx (about 39 MB) is accepted. Creates Chinese personal voices; other encoders are not supported.";
+
+"清晰（默认）" = "Clear (default)";
+
+"原声（带噪声）" = "Original (with noise)";
+
+"语音输出" = "Speech output";
+
+"清晰模式使用下方选择的降噪效果；原声保留模型底噪。只处理 Pocket 语音。" = "Clean mode uses the noise reduction selected below. Original keeps the model noise. Applies only to Pocket speech.";
+
+
+
+"文字已修改，请重新准备语音。" = "Text changed. Prepare the speech again.";
+
+"已备好 · 勾选允许发送后播放" = "Ready · Allow sending to play.";
+
+"按住录音 · ⌃⌥⌘P 播放 · ⌃⌥⌘. 停止" = "Hold record · ⌃⌥⌘P play · ⌃⌥⌘. stop";
+
+"快捷键不可用 · 请用 5 秒倒计时" = "Shortcut unavailable · Use Play in 5 s.";
+
+"请先选择本机扬声器或耳机。" = "Choose local speakers or headphones first.";
+
+"正在准备整段语音…完成后等待播放。" = "Preparing the full speech… Playback will wait.";
+
+"正在播放 · 保持录音，结束后松开" = "Playing · Hold record until finished.";
+
+"%.0f 秒后播放 · 切到聊天软件并按住录音。" = "Playing in %.0f s. Switch to chat and hold record.";
+
+"倒计时已取消 · 准备好录音后再触发播放。" = "Countdown canceled. Trigger playback when recording is ready.";
+
+"试听当前文字 → %@" = "Preview this text → %@";
+
+"试听这段" = "Preview text";
+
+"准备语音" = "Prepare";
+
+"5 秒后播放" = "Play in 5 s";
+
+"先合成整段；按住聊天录音后，⌃⌥⌘P 播放，⌃⌥⌘. 停止。" = "Prepare the full speech first. While holding chat recording: ⌃⌥⌘P plays; ⌃⌥⌘. stops.";
+
+"等待 5 秒后播放已备好的语音；请先切到聊天软件并按住录音。" = "Play prepared speech after 5 seconds. Switch to chat and hold record first.";
+
+"%lu 个小组件，单击展开或收起" = "%lu panels — click to expand or collapse";
+
+"放回顶部" = "Return to top";
+
+"选择音色与效果  ›" = "Choose voice & effects  ›";
+
+"输出设备  ›" = "Output devices  ›";
+
+"音频插件  ›" = "Audio plugins  ›";
+
+"输出设备" = "Output devices";
+
+"音频插件" = "Audio plugins";
+
+"降噪效果" = "Noise reduction";
+
+"未选择音色" = "No voice selected";
+
+"官方插件" = "Official plugins";
+"使用" = "Use";
+"刷新列表" = "Refresh list";
+"更新" = "Update";
+"此分类暂无官方插件" = "No official plugins in this category yet";
+"已安装资源需检查" = "Installed resources need checking";
+"请先安装对应引擎" = "Install the required engine first";
+"待发布" = "Coming soon";
+"可更新" = "Update available";
+"可下载" = "Available to download";
+"正在刷新…" = "Refreshing…";
+"暂时无法刷新，保留当前列表" = "Refresh unavailable; keeping the current list";
+"下载中…" = "Downloading…";
+"正在安装…" = "Installing…";
+"插件下载校验失败" = "Plugin download verification failed";
+"从对应功能页面选择使用" = "Choose Use from the relevant feature panel";
+
+"下载或安装失败，请重试" = "Download or installation failed. Try again.";
+"请先停止任务并选择 Pocket 清晰音色" = "Stop the current task, then select a Pocket voice in Clear mode.";
+"请先停止当前任务，再选择插件" = "Stop the current task before selecting a plugin.";
+
+/* 输入长条与面板材质。 */
+"输入要说的话…" = "Type something to say…";
+"展开语音设置" = "Show speech settings";
+"收起语音设置" = "Hide speech settings";
+"实色背景" = "Solid background";
+"半透明背景" = "Translucent background";
+"面板背景" = "Panel background";
+"切换所有面板的背景，自动保存；跟随系统深浅外观。" = "Change the background of all panels. Saved automatically; follows system appearance.";
+"拖动移动文字窗" = "Drag to move the text window";

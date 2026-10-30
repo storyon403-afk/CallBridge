@@ -20,3 +20,4 @@
 @end
 // 独立诊断入口：真实 WKWebView 与合成/公开素材，只使用原生内存帧发送器。
 int CBAvatarPanelCheck(void);
+int CBAvatarModelCheck(NSString *identifier);

@@ -6,8 +6,10 @@ cd "$root"
 sdk=$(xcrun --sdk macosx --show-sdk-path)
 xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
   -isysroot "$sdk" -mmacosx-version-min=26.0 -DCB_POCKET_CHECK \
-  native/pocket_check.m native/pocket_provider.m native/background_audio.m native/stream_converter.m native/voice_provider.m native/plan_task.m native/speech_job.m \
-  target/release/libcallbridge_abi_probe.a -framework Foundation -framework AVFAudio -framework AVFoundation -framework AudioToolbox \
+  native/pocket_check.m native/pocket_provider.m native/background_audio.m native/stream_converter.m native/voice_provider.m native/plugin_store.m native/english_provider.m native/localization.m native/panel_ui.m native/window_workspace.m native/plan_task.m native/speech_job.m \
+  target/release/libcallbridge_abi_probe.a -framework AppKit -framework QuartzCore -framework UniformTypeIdentifiers -framework Foundation -framework AVFAudio -framework AVFoundation -framework AudioToolbox \
   -o build/pocket-check/pocket-provider-check
 cp target/release/callbridge-pocket build/pocket-check/callbridge-pocket
+# 插件目录也可能包含画像；目录刷新需要与正式 App 相同的原生媒体校验器。
+cp target/release/callbridge-media-check build/pocket-check/callbridge-media-check
 CB_POCKET_TEST_ROOT="$root/build/pocket-check/installed" build/pocket-check/pocket-provider-check "$@"

@@ -19,6 +19,12 @@ int32_t cb_session_begin(CallBridgeSession *session, const uint8_t *text, uint32
 int32_t cb_session_ready(CallBridgeSession *session, uint64_t generation);
 int32_t cb_session_finish(CallBridgeSession *session, uint64_t generation);
 void cb_session_cancel(CallBridgeSession *session);
+// 待发：1 合成 → 3 已备好 → 4 倒计时（可选）→ 2 播放。均主线程独占，代次须匹配。
+int32_t cb_session_prepared(CallBridgeSession *session, uint64_t generation);
+int32_t cb_session_countdown(CallBridgeSession *session, uint64_t generation);
+int32_t cb_session_wait_prepared(CallBridgeSession *session, uint64_t generation);
+int32_t cb_session_play_prepared(CallBridgeSession *session, uint64_t generation);
+int32_t cb_session_preview_finished(CallBridgeSession *session, uint64_t generation);
 
 // 只声明名字，不公开字段：C 只能保存句柄并调用函数，不负责分配或 free 它。
 typedef struct CallBridgePlayer CallBridgePlayer;

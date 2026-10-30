@@ -2,9 +2,11 @@
  * 不捆绑 Chromium、不从 CDN 加载资源；沿用离线页面和原生发送器，音频完全独立。
  * 关闭窗口/睡眠/退出销毁 WebView 并关闭宿主管道；启动代次拒绝迟到的服务响应。
  * 服务磁盘读取与帧处理在独立进程，主线程只做 UI 和启动/停止，不同步等待子进程。 */
+#import "official_plugins.h"
 #import "localization.h"
 #import "avatar_panel.h"
 #import "avatar_plugin.h"
+#import "plugin_store.h"
 #import "panel_ui.h"
 #import "theme.h"
 #import "window_workspace.h"
@@ -40,6 +42,10 @@
 
 @property(nonatomic, readwrite, strong) WKWebView *webView;
 @property(nonatomic, strong) NSView *stage;
+@property(nonatomic, strong) NSStackView *column;
+@property(nonatomic, strong) NSLayoutConstraint *stageMinimum;
+@property(nonatomic) BOOL viewportInstalled;
+@property(nonatomic, strong) NSArray<NSLayoutConstraint *> *cardPins;
 @property(nonatomic, strong) NSTextField *status;
 @property(nonatomic, strong) NSPopUpButton *targets;
 @property(nonatomic, strong) NSTask *service;
@@ -50,6 +56,7 @@
 @property(nonatomic) NSUInteger generation;
 @property(nonatomic) NSUInteger stopping;
 @property(nonatomic) BOOL memoryCheck;
+@property(nonatomic) BOOL importing;
 @property(nonatomic) CBAvatarPlugin *plugin;
 @property(nonatomic) NSView *pluginCard;
 @property(nonatomic) NSStackView *toolbar;
@@ -95,25 +102,30 @@
     self.status=[NSTextField wrappingLabelWithString:@""]; self.status.hidden=YES;
     self.status.font=CBDetailFont(); self.status.textColor=CBSecondaryColor();
     self.stage=[NSView new]; self.stage.translatesAutoresizingMaskIntoConstraints=NO;
-    self.toolbar=CBRow(@[CBSection(CBL(@"摄像头")),self.targets,reload]);self.toolbar.hidden=YES;
+    self.toolbar=[NSStackView stackViewWithViews:@[self.targets,reload]];self.toolbar.spacing=8;self.toolbar.hidden=YES;
+    [self.targets setContentCompressionResistancePriority:249 forOrientation:NSLayoutConstraintOrientationHorizontal];
     self.backButton=[NSButton buttonWithTitle:CBL(@"返回") target:self action:@selector(goBack:)];
     self.breadcrumb=CBSection(CBL(@"画面处理"));
     self.navigation=CBRow(@[self.backButton,self.breadcrumb]);
     self.personChoice=[[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [self.personChoice addItemsWithTitles:@[CBL(@"不替换人物"),CBL(@"澄 · 通话装")]];self.personChoice.target=self;self.personChoice.action=@selector(changeEffects:);
     self.backgroundChoice=[[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [self.backgroundChoice addItemsWithTitles:@[CBL(@"真实背景 · 实时"),CBL(@"采集静态背景"),CBL(@"流光 · 视频素材"),CBL(@"窗景 · 2.5D"),CBL(@"自定义素材")]];
+    [self.backgroundChoice addItemsWithTitles:@[CBL(@"真实背景 · 实时"),CBL(@"采集静态背景"),CBL(@"流光 · 视频素材"),CBL(@"窗景 · 2.5D"),CBL(@"自定义素材"),CBL(@"图片背景")]];
     self.backgroundChoice.target=self;self.backgroundChoice.action=@selector(changeEffects:);
-    self.effectsToolbar=CBRow(@[self.personChoice,self.backgroundChoice]);self.effectsToolbar.hidden=YES;
+    self.effectsToolbar=[NSStackView stackViewWithViews:@[self.personChoice,self.backgroundChoice]];self.effectsToolbar.spacing=8;self.effectsToolbar.distribution=NSStackViewDistributionFillEqually;self.effectsToolbar.hidden=YES;
+    for(NSView *choice in @[self.personChoice,self.backgroundChoice])[choice setContentCompressionResistancePriority:249 forOrientation:NSLayoutConstraintOrientationHorizontal];
     NSStackView *column=CBColumn(@[self.navigation,self.toolbar,self.effectsToolbar,self.status,self.stage]);
+    self.column=column;
     CBInstallColumn(self.window,column,YES);
-    [self.stage.heightAnchor constraintGreaterThanOrEqualToConstant:190].active=YES;
+    self.stageMinimum=[self.stage.heightAnchor constraintGreaterThanOrEqualToConstant:190];self.stageMinimum.active=YES;
     NSURL *base=[NSBundle.mainBundle.resourceURL URLByAppendingPathComponent:@"Avatar"];
-    NSDictionary *config=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:[base URLByAppendingPathComponent:@"runtime.json"]]?:[NSData data] options:0 error:nil];
-    NSString *cache=[config[@"avatar_cache"] isKindOfClass:NSString.class]?config[@"avatar_cache"]:nil;
-    NSURL *cacheURL=cache.isAbsolutePath?[NSURL fileURLWithPath:cache isDirectory:YES]:nil;
-    // 内存诊断复用开发缓存作为隔离根；正常路径只使用已安装插件，不能绕过下载门槛。
-    self.plugin=owner?owner.plugin:[[CBAvatarPlugin alloc] initWithManifest:[base URLByAppendingPathComponent:@"plugin.lock.json"] root:memory?cacheURL:CBAvatarPluginRoot() cache:cacheURL];
+    // 开发缓存由 App 所在仓库相对定位；移动到其他机器后无此目录便只使用已安装插件。
+    NSURL *project=[NSBundle.mainBundle.bundleURL URLByDeletingLastPathComponent];
+    project=[project URLByDeletingLastPathComponent];
+    NSURL *candidateCache=[project URLByAppendingPathComponent:@"avatar" isDirectory:YES];
+    NSURL *cacheURL=[NSFileManager.defaultManager fileExistsAtPath:[candidateCache URLByAppendingPathComponent:@"assets.json"].path]?candidateCache:nil;
+    NSURL *activeRoot=memory?(cacheURL?:CBAvatarPluginRoot()):CBAvatarPluginRoot();
+    self.plugin=owner?owner.plugin:[[CBAvatarPlugin alloc] initWithManifest:[base URLByAppendingPathComponent:@"plugin.lock.json"] root:activeRoot cache:cacheURL];
     self.pluginCard=[NSView new]; self.pluginCard.translatesAutoresizingMaskIntoConstraints=NO;
     self.detailTitle=CBSection(CBL(@"澄 · 通话装"));self.detailTitle.font=CBHeadingFont();
     self.preview=[NSImageView new];self.preview.imageScaling=NSImageScaleProportionallyUpOrDown;
@@ -133,9 +145,10 @@
     [self.preview.heightAnchor constraintEqualToConstant:108].active=YES;
     [self.preview.widthAnchor constraintEqualToAnchor:card.widthAnchor].active=YES;
     [self.pluginCard addSubview:card];[self.stage addSubview:self.pluginCard];
-    [NSLayoutConstraint activateConstraints:@[[self.pluginCard.leadingAnchor constraintEqualToAnchor:self.stage.leadingAnchor],
+    self.cardPins=@[[self.pluginCard.leadingAnchor constraintEqualToAnchor:self.stage.leadingAnchor],
         [self.pluginCard.trailingAnchor constraintEqualToAnchor:self.stage.trailingAnchor],[self.pluginCard.topAnchor constraintEqualToAnchor:self.stage.topAnchor],
-        [self.pluginCard.bottomAnchor constraintEqualToAnchor:self.stage.bottomAnchor],[card.centerXAnchor constraintEqualToAnchor:self.pluginCard.centerXAnchor],
+        [self.pluginCard.bottomAnchor constraintEqualToAnchor:self.stage.bottomAnchor]];
+    [NSLayoutConstraint activateConstraints:@[[card.centerXAnchor constraintEqualToAnchor:self.pluginCard.centerXAnchor],
         [card.topAnchor constraintEqualToAnchor:self.pluginCard.topAnchor constant:8],
         [card.leadingAnchor constraintEqualToAnchor:self.pluginCard.leadingAnchor constant:12],
         [card.trailingAnchor constraintEqualToAnchor:self.pluginCard.trailingAnchor constant:-12],
@@ -167,22 +180,45 @@
 }
 - (BOOL)running { return self.service.running; }
 - (BOOL)busy {
-    if(self.service.running||self.stopping||self.plugin.busy)return YES;
+    if(self.service.running||self.stopping||self.plugin.busy||self.importing)return YES;
     if(!self.workspaceOwner)for(CBAvatarController *c in self.pages.allValues)if(c.service||c.stopping)return YES;
     return NO;
 }
 - (NSString *)message { return self.status.stringValue; }
 - (void)renderPage {
     BOOL detail=[self.page isEqual:@"detail"],renderer=[self.page isEqual:@"renderer"];
+    // 运行页把返回并入设备行，为预览保留高度；返回目录时恢复原导航位置。
+    NSStackView *backRow=renderer?self.toolbar:self.navigation;
+    if(self.backButton.superview!=backRow){
+        [(NSStackView *)self.backButton.superview removeArrangedSubview:self.backButton];[self.backButton removeFromSuperview];
+        [backRow insertArrangedSubview:self.backButton atIndex:0];
+    }
+    // 正在采集/输出的窗口不能收成标签，保留按钮实际可操作的最小外框；目录仍可继续缩小。
+    self.window.minSize=renderer?NSMakeSize(320,300):NSMakeSize(180,96);
+    for(NSLayoutConstraint *pin in self.cardPins)pin.active=detail;
+    if(renderer&&!self.viewportInstalled){
+        // 运行窗口独立于目录/表单：固定顶部选择栏，预览消化剩余高度，不再嵌套外层滚动。
+        NSScrollView *old=self.column.enclosingScrollView;[self.column removeFromSuperview];[old removeFromSuperview];
+        NSView *content=self.window.contentView;[content addSubview:self.column];
+        [NSLayoutConstraint activateConstraints:@[[self.column.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:12],
+            [self.column.trailingAnchor constraintEqualToAnchor:content.trailingAnchor constant:-12],
+            [self.column.topAnchor constraintEqualToAnchor:content.topAnchor constant:8],
+            [self.column.bottomAnchor constraintEqualToAnchor:content.bottomAnchor constant:-8]]];
+        self.column.spacing=6;self.stageMinimum.constant=100;self.stageMinimum.priority=249;self.viewportInstalled=YES;
+    }else if(!renderer&&self.viewportInstalled){
+        [self.column removeFromSuperview];CBInstallColumn(self.window,self.column,YES);
+        self.column.spacing=CBPanelSpacing;self.stageMinimum.constant=190;self.viewportInstalled=NO;
+    }
     self.pluginCard.hidden=!detail;self.catalogView.hidden=detail||renderer;self.toolbar.hidden=!renderer;
     self.effectsToolbar.hidden=!renderer;
     NSDictionary *shown=self.service?(self.renderComposition?:self.composition):self.composition;
+    [self.personChoice itemAtIndex:1].title=CBLocalPluginNamed(shown[@"avatar_plugin"])[@"name"]?:CBL(@"澄 · 通话装");
     [self.personChoice selectItemAtIndex:[shown[@"person"] isEqual:@"avatar"]?1:0];
-    NSUInteger selected=[@[@"original",@"plate",@"sample",@"parallax",@"custom"] indexOfObject:shown[@"background"]];
+    NSUInteger selected=[@[@"original",@"plate",@"sample",@"parallax",@"custom",@"image"] indexOfObject:shown[@"background"]];
     [self.backgroundChoice selectItemAtIndex:selected==NSNotFound?0:selected];
     self.backButton.hidden=[self.page isEqual:@"categories"];
     // 首页没有返回入口，整行移出布局，避免隐藏按钮仍留下行间距。
-    self.navigation.hidden=self.backButton.hidden;
+    self.navigation.hidden=renderer||self.backButton.hidden;
     self.breadcrumb.hidden=YES;self.detailTitle.hidden=YES;
     if([self.page isEqual:@"categories"]) {
         self.breadcrumb.stringValue=CBL(@"画面处理");
@@ -221,12 +257,22 @@
         self.catalogView.grid.tiles=@[pending];
     } else {
         BOOL background=[self.detailKind isEqual:@"background"];
-        NSString *name=@{@"original":CBL(@"真实背景动态化"),@"plate":CBL(@"采集静态背景"),@"sample":CBL(@"流光 · 视频素材"),@"parallax":CBL(@"窗景 · 2.5D"),@"custom":CBL(@"自定义素材")}[self.selectedBackground];
-        self.detailTitle.stringValue=background?name:CBL(@"澄 · 通话装");
+        NSString *name=@{@"original":CBL(@"真实背景动态化"),@"plate":CBL(@"采集静态背景"),@"sample":CBL(@"流光 · 视频素材"),@"parallax":CBL(@"窗景 · 2.5D"),@"custom":CBL(@"自定义素材"),@"image":CBL(@"图片背景")}[self.selectedBackground];
+        NSDictionary *character=CBLocalPluginNamed(self.composition[@"avatar_plugin"]);NSDictionary *back=CBLocalPluginNamed(self.composition[@"background_plugin"]);
+        self.detailTitle.stringValue=background?(back&&[@[@"custom",@"image"] containsObject:self.selectedBackground]?back[@"name"]:name):(character?character[@"name"]:CBL(@"澄 · 通话装"));
         self.breadcrumb.stringValue=background?CBL(@"背景替换"):CBL(@"人物形象替换 / 虚拟人物");
-        self.preview.hidden=background;self.importBackground.hidden=!(background&&[self.selectedBackground isEqual:@"custom"]);
+        self.preview.hidden=background||[self.composition[@"avatar_plugin"] length]>0;self.importBackground.hidden=!(background&&[self.selectedBackground isEqual:@"custom"]);
         self.pairQuestion.stringValue=background?CBL(@"同时替换人物？"):CBL(@"同时替换背景？");
         self.pairJump.title=background?CBL(@"选择人物…"):CBL(@"选择背景…");
+    }
+    if([@[@"virtual",@"backgrounds",@"dynamic"] containsObject:self.page]){
+        NSMutableArray *tiles=[self.catalogView.grid.tiles mutableCopy];
+        for(NSDictionary *plugin in CBLocalPlugins(nil)){
+            NSString *kind=plugin[@"kind"];BOOL avatar=[self.page isEqual:@"virtual"]&&[kind isEqual:@"avatar"];BOOL background=![self.page isEqual:@"virtual"]&&[@[@"background-image",@"background-video"] containsObject:kind];
+            if(avatar||background){NSButton *tile=CBModuleTile(plugin[@"name"],CBL(@"本地插件"),avatar?@"person.crop.rectangle":@"photo",self,@selector(selectLocalPlugin:));tile.identifier=plugin[@"id"];[tiles insertObject:tile atIndex:tiles.count?tiles.count-1:0];}
+        }
+        [tiles addObject:CBModuleTile(CBL(@"官方插件"),@"",@"shippingbox",self,@selector(officialPlugins:))];
+        [tiles addObject:CBModuleTile(CBL(@"导入本地插件…"),@"",@"square.and.arrow.down",self,@selector(importLocalPlugin:))];self.catalogView.grid.tiles=tiles;
     }
     NSDictionary *titles=@{@"categories":CBL(@"画面处理"),@"people":CBL(@"人物形象替换"),@"virtual":CBL(@"虚拟人物形象"),@"backgrounds":CBL(@"背景替换"),@"dynamic":CBL(@"动态背景"),@"real":CBL(@"真实人物形象"),@"future":CBL(@"待添加"),@"renderer":CBL(@"组合输出")};
     self.window.title=detail?self.detailTitle.stringValue:(titles[self.page]?:CBL(@"画面处理"));
@@ -257,12 +303,30 @@
 - (void)showCustom:(id)sender { (void)sender;[self backgroundDetail:@"custom"]; }
 - (void)showReal:(id)sender { (void)sender;[self navigate:@"real"]; }
 - (void)showFuture:(NSButton *)sender { self.futureParent=self.page;self.futureTitle=sender.title;[self navigate:@"future"]; }
-- (void)showDetail:(id)sender { (void)sender;self.detailKind=@"person";[self navigate:@"detail"]; }
+- (void)showDetail:(id)sender { (void)sender;NSMutableDictionary *v=[self.composition mutableCopy];[v removeObjectForKey:@"avatar_plugin"];[self saveComposition:v];self.detailKind=@"person";[self navigate:@"detail"]; }
+- (void)officialPlugins:(id)sender {
+    (void)sender;if(self.importing||self.service)return;
+    NSArray *kinds=[self.page isEqual:@"virtual"]?@[@"avatar"]:@[@"background-image",@"background-video"];
+    CBShowOfficialPlugins(self.window,kinds,^(NSDictionary *plugin){
+        if(self.service)return;[self renderPage];NSButton *button=[NSButton new];button.identifier=plugin[@"id"];[self selectLocalPlugin:button];
+    });
+}
+- (void)importLocalPlugin:(id)sender{
+    (void)sender;if(self.importing||self.service)return;self.importing=YES;
+    NSArray *kinds=[self.page isEqual:@"virtual"]?@[@"avatar",@"engine-avatar"]:@[@"background-image",@"background-video",@"engine-avatar"];
+    CBImportLocalPlugin(self.window,kinds,^(NSDictionary *plugin,NSString *error){self.importing=NO;[self renderPage];[self showMessage:CBL(error)?:(plugin?CBL(@"插件已导入，请选择使用"):@"")];});
+}
+- (void)selectLocalPlugin:(NSButton *)sender{
+    NSDictionary *plugin=CBLocalPluginNamed(sender.identifier);if(!plugin)return;NSMutableDictionary *value=[self.composition mutableCopy];
+    if([plugin[@"kind"] isEqual:@"avatar"]){value[@"avatar_plugin"]=plugin[@"id"];self.detailKind=@"person";}
+    else{value[@"background_plugin"]=plugin[@"id"];value[@"path"]=plugin[@"entry"];self.detailKind=@"background";self.selectedBackground=[plugin[@"kind"] isEqual:@"background-image"]?@"image":@"custom";}
+    [self saveComposition:value];[self navigate:@"detail"];
+}
 - (void)saveComposition:(NSDictionary *)value { self.composition=value;if(self.root.compositionChanged)self.root.compositionChanged(value); }
 - (BOOL)selectDetail {
     NSMutableDictionary *value=[self.composition mutableCopy];
     if([self.detailKind isEqual:@"background"]){
-        if([self.selectedBackground isEqual:@"custom"]&&![value[@"path"] length]){[self showMessage:CBL(@"请先导入背景视频")];return NO;}
+        if([@[@"custom",@"image"] containsObject:self.selectedBackground]&&![value[@"path"] length]){[self showMessage:CBL(@"请先导入背景视频")];return NO;}
         value[@"background"]=self.selectedBackground;
     }else value[@"person"]=@"avatar";
     [self saveComposition:value];return YES;
@@ -281,13 +345,13 @@
         NSURL *url=panel.URL;NSNumber *regular=nil,*link=nil,*bytes=nil;
         [url getResourceValue:&regular forKey:NSURLIsRegularFileKey error:nil];[url getResourceValue:&link forKey:NSURLIsSymbolicLinkKey error:nil];[url getResourceValue:&bytes forKey:NSURLFileSizeKey error:nil];
         if(!regular.boolValue||link.boolValue||bytes.unsignedLongLongValue==0||bytes.unsignedLongLongValue>64*1024*1024){[self showMessage:CBL(@"请选择 64 MiB 以内的本地背景视频")];return;}
-        NSMutableDictionary *value=[self.composition mutableCopy];value[@"path"]=url.path;[self saveComposition:value];
+        NSMutableDictionary *value=[self.composition mutableCopy];value[@"path"]=url.path;[value removeObjectForKey:@"background_plugin"];[self saveComposition:value];
         self.importBackground.title=CBL(@"已导入 · 重新选择…");self.importBackground.toolTip=url.lastPathComponent;[self showMessage:@""];
     }];
 }
 - (void)changeEffects:(id)sender {
-    (void)sender;NSString *background=@[@"original",@"plate",@"sample",@"parallax",@"custom"][self.backgroundChoice.indexOfSelectedItem];
-    if([background isEqual:@"custom"]&&![self.composition[@"path"] length]){[self backgroundDetail:@"custom"];return;}
+    (void)sender;NSString *background=@[@"original",@"plate",@"sample",@"parallax",@"custom",@"image"][self.backgroundChoice.indexOfSelectedItem];
+    if([@[@"custom",@"image"] containsObject:background]&&![self.composition[@"path"] length]){[self backgroundDetail:@"custom"];return;}
     NSMutableDictionary *value=[self.composition mutableCopy];value[@"person"]=self.personChoice.indexOfSelectedItem==1?@"avatar":@"none";value[@"background"]=background;
     if([value isEqual:self.composition])return;[self saveComposition:value];[self reload:nil];
 }
@@ -329,6 +393,7 @@
     [self.window deminiaturize:nil];
     [self.window makeKeyAndOrderFront:nil];
     [self refreshDetail];
+    if(!self.memoryCheck&&!self.service)CBRefreshLocalPlugins(^(NSString *error){if(!self.service){[self renderPage];if(error)[self showMessage:CBL(error)];}});
 }
 - (void)refreshDetail {
     if (self.service) return;
@@ -389,13 +454,16 @@
     if(![self.page isEqual:@"detail"]||!self.plugin.ready||self.plugin.busy||self.service||self.stopping)return;
     if(!self.reopenPlugin&&![self selectDetail])return;
     NSURL *bundle=NSBundle.mainBundle.resourceURL;
-    NSURL *runtime=[bundle URLByAppendingPathComponent:@"Avatar/runtime.json"];
-    NSDictionary *config=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:runtime]?:[NSData data] options:0 error:nil];
-    NSString *configured=[config[@"node"] isKindOfClass:NSString.class]?config[@"node"]:@"";
     NSString *node=nil;
-    // 当前开发集成复用本机 Node，不把整个运行时放进应用；移动机器时给出明确错误。
-    for (NSString *candidate in @[configured,@"/opt/homebrew/bin/node",@"/usr/local/bin/node"])
-        if (candidate.isAbsolutePath && [NSFileManager.defaultManager isExecutableFileAtPath:candidate]) { node=candidate; break; }
+    // 发行包优先使用包内锁定 Node；源码构建可显式配置或使用常见安装位置，不运行 shell。
+    NSString *embedded=[NSBundle.mainBundle.executableURL.URLByDeletingLastPathComponent URLByAppendingPathComponent:@"node"].path;
+    NSString *configured=NSProcessInfo.processInfo.environment[@"CB_NODE_PATH"]?:@"";
+    NSMutableArray<NSString *> *candidates=[NSMutableArray arrayWithArray:@[embedded,configured,@"/opt/homebrew/bin/node",@"/usr/local/bin/node"]];
+    // 本地 nvm 仅作为源码构建兼容项，按版本号排序；不把它的路径写入发布包。
+    NSString *versions=[NSHomeDirectory() stringByAppendingPathComponent:@".nvm/versions/node"];
+    NSArray *names=[[NSFileManager.defaultManager contentsOfDirectoryAtPath:versions error:nil] sortedArrayUsingComparator:^NSComparisonResult(NSString *a,NSString *b){return [b compare:a options:NSNumericSearch];}];
+    NSUInteger count=0;for(NSString *name in names){if(++count>64)break;if([name hasPrefix:@"v"]&&[name rangeOfString:@"/"].location==NSNotFound)[candidates addObject:[[versions stringByAppendingPathComponent:name] stringByAppendingPathComponent:@"bin/node"]];}
+    for(NSString *candidate in candidates)if(candidate.isAbsolutePath&&[NSFileManager.defaultManager isExecutableFileAtPath:candidate]){node=candidate;break;}
     if (!node) { [self showMessage:CBL(@"形象服务缺少本机 Node.js，请安装 Node.js 22+ 后重新构建应用。")]; return; }
     NSURL *script=[bundle URLByAppendingPathComponent:@"Avatar/server.mjs"];
     NSURL *assets=[bundle URLByAppendingPathComponent:@"Avatar/site" isDirectory:YES];
@@ -404,6 +472,8 @@
         ![NSFileManager.defaultManager isExecutableFileAtPath:sender.path]) {
         [self showMessage:CBL(@"形象资源不完整，请重新构建 CallBridge。")]; return;
     }
+    NSDictionary *character=CBLocalPluginNamed(self.composition[@"avatar_plugin"]);
+    if([self.composition[@"avatar_plugin"] length]&&!character){[self showMessage:CBL(@"所选角色插件不可用，请重新导入或选择")];return;}
     self.renderComposition=[self.composition copy];
     [self showMessage:CBL(@"正在准备角色…")];
     self.reopenPlugin=NO;self.page=@"renderer";[self renderPage];
@@ -412,7 +482,8 @@
     // 不继承 NODE_OPTIONS 等可注入加载器的环境；localhost 也不使用系统代理。
     task.environment=@{@"PATH":@"/usr/bin:/bin",@"CB_AVATAR_PORT":@"0",@"CB_AVATAR_CAMERA":self.target,
         @"CB_AVATAR_ASSETS":assets.path,@"CB_AVATAR_SENDER":sender.path,@"CB_AVATAR_PLUGIN":self.plugin.root.path,
-        @"CB_BACKGROUND_FILE":[self.renderComposition[@"background"] isEqual:@"custom"]?self.renderComposition[@"path"]:@""};
+        @"CB_CHARACTER_FILE":character[@"entry"]?:@"",@"CB_CHARACTER_SHA":character[@"sha256"]?:@"",@"CB_CHARACTER_BYTES":[character[@"bytes"] stringValue]?:@"0",
+        @"CB_BACKGROUND_FILE":[@[@"custom",@"image"] containsObject:self.renderComposition[@"background"]]?self.renderComposition[@"path"]:@""};
     NSPipe *input=[NSPipe pipe], *output=[NSPipe pipe];
     task.standardInput=input; task.standardOutput=output; task.standardError=NSFileHandle.fileHandleWithNullDevice;
     self.lifeline=input.fileHandleForWriting; self.service=task;
@@ -455,7 +526,8 @@
     WKWebViewConfiguration *configuration=[WKWebViewConfiguration new];
     configuration.websiteDataStore=WKWebsiteDataStore.nonPersistentDataStore;
     configuration.mediaTypesRequiringUserActionForPlayback=WKAudiovisualMediaTypeAudio;
-    NSData *json=[NSJSONSerialization dataWithJSONObject:@{@"person":self.renderComposition[@"person"],@"background":self.renderComposition[@"background"]} options:0 error:nil];
+    // Objective-C 的比较结果是 int；明确转 BOOL，JSON 才输出 true，匹配前端严格布尔开关。
+    NSData *json=[NSJSONSerialization dataWithJSONObject:@{@"person":self.renderComposition[@"person"],@"background":self.renderComposition[@"background"],@"character":@((BOOL)([self.renderComposition[@"avatar_plugin"] length]>0))} options:0 error:nil];
     NSString *source=[NSString stringWithFormat:@"window.callbridgeNative=true;window.callbridgeComposition=%@;document.documentElement.classList.add('native-host');",[[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
     WKUserScript *script=[[WKUserScript alloc] initWithSource:source
         injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES];

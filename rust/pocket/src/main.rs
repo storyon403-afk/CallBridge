@@ -1,6 +1,9 @@
 // 本文件的目的：提供隔离的 Pocket TTS 命令入口，不持有任何音频设备。
+mod denoise;
+mod english;
 mod model;
 mod package;
+mod plugins;
 mod quality;
 mod text;
 mod voice;
@@ -17,6 +20,10 @@ fn main() {
 }
 fn entry() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("english-catalog") {
+        println!("{}", english::CATALOG);
+        return Ok(());
+    }
     if args.get(1).map(String::as_str) == Some("catalog") {
         println!("{}", package::CATALOG);
         return Ok(());
@@ -31,6 +38,53 @@ fn entry() -> Result<()> {
     );
     let root = Path::new(&args[2]);
     match args[1].as_str() {
+        "english-voices" => println!("{}", english::voices(root)?),
+        "english-profile-install" => {
+            ensure!(args.len() == 4, "缺少音色安装目录");
+            println!("{}", english::install_profile(root, Path::new(&args[3]))?);
+        }
+        "english-profile-check" => println!("{}", english::profile(root)?),
+        "english-tensor-check" => {
+            plugins::safe_tensor(root)?;
+            println!("ready");
+        }
+        "english-verify" => {
+            english::verify(root, true)?;
+            println!("ready");
+        }
+        "english-finalize" => {
+            ensure!(args.len() == 4, "缺少英文安装目标");
+            english::finalize(root, Path::new(&args[3]))?;
+            println!("ready");
+        }
+        "plugin-check" => {
+            let m = plugins::check(root)?;
+            println!("{}", plugins::describe(root, &m));
+        }
+        "plugin-list" => println!("{}", plugins::list(root)?),
+        "plugin-install-official" => {
+            ensure!(args.len() == 7, "缺少官方插件类型、身份或版本");
+            println!(
+                "{}",
+                plugins::install_expected(
+                    root,
+                    Path::new(&args[3]),
+                    &args[4],
+                    Some((&args[5], &args[6]))
+                )?
+            );
+        }
+        "plugin-import" => {
+            ensure!(args.len() == 5, "缺少插件安装目标或类型");
+            println!("{}", plugins::install(root, Path::new(&args[3]), &args[4])?);
+        }
+        "denoise" => {
+            ensure!(
+                args.len() == 5,
+                "用法: denoise INPUT_WAV OUTPUT_WAV STRENGTH"
+            );
+            denoise::wav(root, Path::new(&args[3]), args[4].parse()?)?;
+        }
         "encoder-verify" => {
             voice::verify_encoder(root)?;
             println!("ready");

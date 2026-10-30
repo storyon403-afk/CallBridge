@@ -2,8 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {composition} from '../src/background.mjs';
-test('人物与五类背景自由组合，不覆盖对方选择',()=>{
- for(const person of ['none','avatar'])for(const background of ['original','plate','sample','parallax','custom']){
+test('人物与六类背景自由组合，不覆盖对方选择',()=>{
+ for(const person of ['none','avatar'])for(const background of ['original','plate','sample','parallax','custom','image']){
   const value=composition({person,background});assert.deepEqual(value,{person,background});assert.ok(Object.isFrozen(value));
  }
 });

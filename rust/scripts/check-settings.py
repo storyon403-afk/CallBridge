@@ -57,7 +57,8 @@ class SettingsTests(unittest.TestCase):
 
     def test_new_process_restores_every_persistent_setting(self):
         values = {
-            "schema_version": 1, "ui_language": "ja", "voice_id": "org.example.preset", "prosody_mode": 4,
+            "speech_output_mode": "clean", "speech_denoise": True, "denoise_strength": 0.5, "denoise_plugin": "org.example.clean",
+            "panel_background": "glass", "schema_version": 1, "ui_language": "ja", "voice_id": "org.example.preset", "prosody_mode": 4,
             "send_uid": "BlackHole2ch_UID", "preview_uid": "usb-output",
             "microphone_uid": "usb-input", "speech_gain": 0.32,
             "background_gain": 0.71, "environment_gain": 0.43,
@@ -72,6 +73,21 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(self.run_tool("read")["settings"], values)
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
 
+    def test_clear_default_migration_and_explicit_original_persist(self):
+        fresh = self.run_tool("read")["settings"]
+        self.assertEqual(fresh["speech_output_mode"], "clean")
+        self.assertTrue(fresh["speech_denoise"])
+        self.write({"schema_version": 1, "speech_denoise": False, "speech_gain": 0.32})
+        migrated = self.run_tool("read")["settings"]
+        self.assertEqual(migrated["speech_output_mode"], "clean")
+        self.assertTrue(migrated["speech_denoise"])
+        self.assertAlmostEqual(migrated["speech_gain"], 0.32)
+        for mode, clean in [("original", False), ("clean", True), ("invalid", True)]:
+            self.write({"schema_version": 1, "speech_output_mode": mode, "speech_denoise": not clean})
+            saved = self.run_tool("read")["settings"]
+            self.assertEqual(saved["speech_output_mode"], mode if mode != "invalid" else "clean")
+            self.assertEqual(saved["speech_denoise"], clean)
+
     def test_runtime_authorization_and_private_text_are_never_saved(self):
         self.write({"schema_version": 1, "arm": True, "environment_enabled": True,
                     "background_enabled": True, "background_paused": True,
@@ -85,11 +101,12 @@ class SettingsTests(unittest.TestCase):
     def test_invalid_values_cannot_select_unknown_target_or_bad_gain(self):
         self.write({"schema_version": 1, "send_uid": "BuiltInSpeakerDevice",
                     "speech_gain": 3, "background_gain": "0.5", "environment_gain": -1,
-                    "prosody_mode": 2.5, "ui_language": "invalid", "pin_text": "false", "video_target": "default-real-camera",
+                    "panel_background": "unknown", "prosody_mode": 2.5, "ui_language": "invalid", "pin_text": "false", "video_target": "default-real-camera",
                     "video_composition": {"person": ["avatar", "real"], "background": "reconstruction", "path": "https://example.com/private", "camera_active": True},
                     "voice_id": ["bad"], "background_path": "https://example.com/music.wav",
                     "window_frames": {"main": [0, 0, -50, 100], "unknown": [0, 0, 1, 1]}})
         value = self.run_tool("read")["settings"]
+        self.assertEqual(value["panel_background"], "solid")
         self.assertEqual(value["ui_language"], "zh-Hans")
         self.assertEqual(value["send_uid"], "CallBridgeLink_UID")
         self.assertEqual(value["video_target"], "obs")

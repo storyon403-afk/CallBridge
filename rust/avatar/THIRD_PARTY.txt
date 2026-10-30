@@ -1,4 +1,4 @@
-CallBridge Avatar Lab — 本地开源迁移实验，未发布。
+CallBridge 人物与背景组件 — 来源和许可。
 
 参考项目：Kalidoface 3D https://github.com/yeemachine/kalidoface-3d
 固定提交 13dbbe046e75b9e31a89dac5fb839a0e6876f2ec。
@@ -16,17 +16,17 @@ MIT 原文在 licenses/kalidokit.txt（源码 licenses/Kalidokit-MIT.txt）。
 Three.js 0.186.1、@pixiv/three-vrm 3.5.5：MIT，版权声明随包 licenses/ 保存。
 MediaPipe Holistic 0.5.1675471629：npm 声明 Apache-2.0。
 https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE
-这是 legacy solution，仅作对齐参考路径的实验；模型复杂度保持 1、开启精细面部点，不改权重/量化。
+采用 legacy solution；模型复杂度保持 1、开启精细面部点，不改权重/量化。
 只去除未选择的 lite/heavy 模型，保留 SIMD 和非 SIMD 运行时。
 
 角色：VRM1_Constraint_Twist_Sample，Copyright (c) 2022 pixiv Inc.
 https://github.com/vrm-c/vrm-specification/tree/master/samples/VRM1_Constraint_Twist_Sample
 VRM Public License 1.0：https://vrm.dev/en/licenses/1.0/
 具体使用范围以未修改 VRM 中的 meta/License Settings 为准；assets.lock.json 固定文件摘要。
-本地验证使用，未把模型列为 CallBridge 自有素材或承诺可任意分发。
+角色按 VRM Public License 1.0 及文件内许可使用，保留 pixiv 原版权。
 
 公开测试图：https://storage.googleapis.com/mediapipe-assets/pose.jpg
-仅作本地算法输入；不纳入产品示例素材的分发承诺。
+用作算法输入，不作为人物或背景素材。
 所有依赖实际版本与完整性记录见 package-lock.json；下载后的原型可断网运行。
 
 动作稳定性参考：1€ Filter https://gery.casiez.net/1euro/

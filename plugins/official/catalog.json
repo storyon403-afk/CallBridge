@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "id": "org.callbridge.light-denoise",
+      "version": "1.0.0",
+      "kind": "audio-denoise",
+      "names": {
+        "zh-Hans": "轻度降噪样例",
+        "en": "Light denoise sample",
+        "ja": "軽いノイズ除去サンプル"
+      },
+      "bytes": 823,
+      "sha256": "851d59762c3b28c63039849067dd45be7b2cd4d4872d2506dc74dfc4ac468253",
+      "url": "https://github.com/storyon403-afk/CallBridge/releases/download/plugins-v1/light-denoise-1.0.0.cbplugin",
+      "published": false,
+      "dependencies": []
+    },
+    {
+      "id": "org.callbridge.soft-room",
+      "version": "1.0.0",
+      "kind": "audio-background",
+      "names": {
+        "zh-Hans": "柔和环境音样例",
+        "en": "Soft ambience sample",
+        "ja": "穏やかな環境音サンプル"
+      },
+      "bytes": 128817,
+      "sha256": "a48a14a80c2b477b32251b068a1fd534f4cb48a946e4725433b5ccb185e00d84",
+      "url": "https://github.com/storyon403-afk/CallBridge/releases/download/plugins-v1/soft-room-1.0.0.cbplugin",
+      "published": false,
+      "dependencies": []
+    },
+    {
+      "id": "org.callbridge.dusk",
+      "version": "1.0.0",
+      "kind": "background-image",
+      "names": {
+        "zh-Hans": "暮色背景样例",
+        "en": "Dusk background sample",
+        "ja": "夕暮れ背景サンプル"
+      },
+      "bytes": 24847,
+      "sha256": "a2dd0fb8915f5d2a1e785996ad2ea290de414c64fa7fd5011afbb0da1bb0d93c",
+      "url": "https://github.com/storyon403-afk/CallBridge/releases/download/plugins-v1/dusk-1.0.0.cbplugin",
+      "published": false,
+      "dependencies": [
+        {
+          "id": "avatar-holistic-v1",
+          "version": "1.0.0"
+        }
+      ]
+    }
+  ]
+}
