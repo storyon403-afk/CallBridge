@@ -12,12 +12,14 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+from update_release import check_signing_key, generate_feed
 
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('release_files',ROOT/'scripts/release-files.py')
 policy=importlib.util.module_from_spec(spec);spec.loader.exec_module(policy)
 args=argparse.ArgumentParser();args.add_argument('--source-only',action='store_true');opts=args.parse_args()
 info=plistlib.loads((ROOT/'rust/native/Info.plist').read_bytes());version=info['CFBundleShortVersionString']
+if not opts.source_only:check_signing_key(info)
 OUT=ROOT/'rust/build/releases'/version;OUT.mkdir(parents=True,exist_ok=True)
 files=policy.files();required=['LICENSE','NOTICE','LICENSING.md','SECURITY.md','THIRD_PARTY_NOTICES.md','GETTING_STARTED.md','release/NOTES.md','rust/native/plugin_store.m','rust/pocket/src/plugins.rs']
 for name in required:
@@ -40,9 +42,12 @@ if not opts.source_only:
     subprocess.run(['python3',str(ROOT/'scripts/collect-licenses.py')],check=True)
     app=ROOT/'rust/build/app/CallBridge.app';subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True)
     built=plistlib.loads((app/'Contents/Info.plist').read_bytes())
-    if any(built[key]!=info[key] for key in ['CFBundleShortVersionString','CFBundleVersion']):raise SystemExit('Rebuild App before packaging')
+    if built!=info:raise SystemExit('Rebuild App before packaging: bundle metadata is stale')
     with tempfile.TemporaryDirectory(prefix='release-stage-',dir=ROOT/'rust/build') as temp:
-        stage=Path(temp)/'CallBridge.app';shutil.copytree(app,stage)
+        stage=Path(temp)/'CallBridge.app';shutil.copytree(app,stage,symlinks=True)
+        # 只有完整发行包启用自动更新；开发 App 和诊断路径保持离线。
+        release_info={**built,'CBEnableUpdates':True}
+        (stage/'Contents/Info.plist').write_bytes(plistlib.dumps(release_info))
         node=stage/'Contents/MacOS/node';shutil.copy2(runtime/'node',node)
         licenses=stage/'Contents/Resources/Licenses';licenses.mkdir(exist_ok=True)
         for name in ['LICENSE','NOTICE','LICENSING.md','THIRD_PARTY_NOTICES.md']:shutil.copy2(ROOT/name,licenses/name)
@@ -59,11 +64,23 @@ if not opts.source_only:
         if list(stage.rglob('settings-v1.plist')) or list(stage.rglob('voice.safetensors')):raise SystemExit('Private resource in App')
         binary=OUT/f'CallBridge-{version}-macos-arm64.zip'
         subprocess.run(['ditto','-c','-k','--norsrc','--noextattr','--keepParent',str(stage),str(binary)],check=True);artifacts.append(binary)
-        (OUT/'APP_MANIFEST.json').write_text(json.dumps({'version':version,'build':info['CFBundleVersion'],'signature':'ad-hoc','notarized':False,'files':[{'path':p.relative_to(stage).as_posix(),'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(stage.rglob('*')) if p.is_file()]},indent=2)+'\n')
+        # framework 的链接必须原样保存；不能把链接目标误当成归档中的文件字节。
+        entries=[]
+        for p in sorted(stage.rglob('*')):
+            name=p.relative_to(stage).as_posix()
+            if p.is_symlink():entries.append({'path':name,'symlink':p.readlink().as_posix()})
+            elif p.is_file():entries.append({'path':name,'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
+        (OUT/'APP_MANIFEST.json').write_text(json.dumps({'version':version,'build':info['CFBundleVersion'],'signature':'ad-hoc','notarized':False,'files':entries},indent=2)+'\n')
         artifacts.append(OUT/'APP_MANIFEST.json')
+    artifacts.append(generate_feed(binary,info))
     shutil.copy2(ROOT/'GETTING_STARTED.md',OUT/'GETTING_STARTED.md')
     shutil.copy2(ROOT/'SECURITY.md',OUT/'SECURITY.md')
     shutil.copy2(ROOT/'release/NOTES.md',OUT/'RELEASE_NOTES.md')
     artifacts.extend(OUT/name for name in ['GETTING_STARTED.md','SECURITY.md','RELEASE_NOTES.md'])
+    windows=OUT/f'CallBridge-{version}-windows-x64.zip'
+    if windows.exists():
+        # Windows 独立归档先通过自身校验，再纳入同版本总清单；不会加入 macOS 更新源。
+        subprocess.run(['python3',str(ROOT/'scripts/check-windows.py')],check=True)
+        artifacts.extend([windows,OUT/'WINDOWS-SHA256SUMS'])
 (OUT/'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in artifacts))
 print(json.dumps({'version':version,'source_files':len(files),'artifacts':[str(p) for p in artifacts],'published':False}))

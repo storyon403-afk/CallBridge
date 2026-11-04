@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import sys
+import subprocess
 
 root = Path(__file__).resolve().parents[2]
 source = root / 'build/avatar'
@@ -25,6 +26,20 @@ shutil.copyfile(root / 'avatar/plugin.lock.json', destination / 'plugin.lock.jso
 shutil.copyfile(root / 'avatar/preview.jpg', destination / 'preview.jpg')
 for name in ['server.mjs', 'camera-bridge.mjs']:
     shutil.copyfile(root / 'avatar/scripts' / name, destination / name)
+# 云端长期凭据由宿主会话注入，包内只带协议适配代码，不带账号或配置副本。
+shutil.copytree(root / 'avatar/scripts/cloud', destination / 'cloud', dirs_exist_ok=True)
 # 发行包不记录开发者 HOME、Node 安装路径或缓存；可选运行时只放在固定包内位置。
 (destination / 'runtime.json').write_text(json.dumps({'schema': 1, 'node_minimum_major': 22}))
 print('形象宿主已打包；可选插件：', sum(e['bytes'] for e in manifest['files']), 'bytes')
+
+# 厂商目录由同一适配注册表生成；说明随包离线可读，不复制密钥或用户设置。
+cloud_docs = destination.parent / 'Cloud'
+cloud_docs.mkdir(exist_ok=True)
+registry = (root / 'avatar/scripts/cloud/providers.mjs').as_uri()
+metadata = subprocess.check_output(['node', '--input-type=module', '-e',
+    'import {PROVIDERS} from ' + json.dumps(registry) + ';process.stdout.write(JSON.stringify(PROVIDERS));'])
+(cloud_docs / 'providers.json').write_bytes(metadata)
+for provider in json.loads(metadata):
+    shutil.copyfile(root / 'avatar/cloud-guides' / (provider['guide'] + '.md'), cloud_docs / (provider['guide'] + '.md'))
+for name in ['api.md', 'README.md']:
+    shutil.copyfile(root / 'avatar/cloud-guides' / name, cloud_docs / name)

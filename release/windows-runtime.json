@@ -1,0 +1,27 @@
+{
+  "platform": "win-x64",
+  "node": "22.23.2",
+  "python": "3.13.9",
+  "files": [
+    {
+      "name": "node.zip",
+      "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-win-x64.zip",
+      "sha256": "1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97"
+    },
+    {
+      "name": "python.zip",
+      "url": "https://www.python.org/ftp/python/3.13.9/python-3.13.9-embed-amd64.zip",
+      "sha256": "91d828c2da3a029b41699e918674a0cb379c02cf20dab9c501306885f837402a"
+    },
+    {
+      "name": "numpy-2.3.4-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/09/97/fd421e8bc50766665ad35536c2bb4ef916533ba1fdd053a62d96cc7c8b95/numpy-2.3.4-cp313-cp313-win_amd64.whl",
+      "sha256": "56209416e81a7893036eea03abcb91c130643eb14233b2515c90dcac963fe99d"
+    },
+    {
+      "name": "pyvirtualcam-0.15.0-cp313-cp313-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/4b/be/654a79e8a98b1a32fbc58744d1a97b1efa66b0d91e81cb571d5a92dad741/pyvirtualcam-0.15.0-cp313-cp313-win_amd64.whl",
+      "sha256": "5deb5a68a95a9b3a67bac3b0c614ed084421ec22726a811fc6c575864f912be2"
+    }
+  ]
+}

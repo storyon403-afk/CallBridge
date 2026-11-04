@@ -1,4 +1,4 @@
-// 本文件的目的：提供本地资源和经会话授权的最终视频帧管道；无外网上传、代理或任意目录浏览。
+// 本文件的目的：提供本地资源、授权后的云端控制接口和最终视频帧管道；不提供任意代理或目录浏览。
 import http from 'node:http';
 import {readFile,realpath,open} from 'node:fs/promises';
 import {constants} from 'node:fs';
@@ -6,9 +6,11 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {randomBytes,createHash} from 'node:crypto';
 import {CameraBridge} from './camera-bridge.mjs';
+import {CloudService} from './cloud/service.mjs';
+import {cloudRoute} from './cloud/http.mjs';
 const root=process.env.CB_AVATAR_ASSETS??fileURLToPath(new URL('../../build/avatar/',import.meta.url));
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm','.json':'application/json','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.txt':'text/plain; charset=utf-8','.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm'};
-export async function startServer(port=5778,{camera=new CameraBridge(),backgroundFile=process.env.CB_BACKGROUND_FILE??null}={}){
+export async function startServer(port=5778,{camera=new CameraBridge(),backgroundFile=process.env.CB_BACKGROUND_FILE??null,cloud=new CloudService()}={}){
  const base=await realpath(root);
  const plugin=process.env.CB_AVATAR_PLUGIN?await realpath(process.env.CB_AVATAR_PLUGIN):null;
  const token=randomBytes(32).toString('hex');let receiving=false,statusPromise=null;
@@ -41,6 +43,7 @@ export async function startServer(port=5778,{camera=new CameraBridge(),backgroun
    // 所有资源（含会话令牌）都拒绝跨站读取，Host 校验同时拒绝 DNS rebinding。
    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)){res.writeHead(403);return res.end();}
    const url=new URL(req.url,'http://127.0.0.1');const rel=decodeURIComponent(url.pathname);
+   if(await cloudRoute({req,res,pathname:rel,origin:`http://${req.headers.host}`,token,service:cloud,json,body}))return;
    if((rel==='/character/info'||rel==='/character/model')&&['GET','HEAD'].includes(req.method)){
     if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&req.headers.origin!==`http://${req.headers.host}`)){res.writeHead(403);return res.end();}
     const filename=process.env.CB_CHARACTER_FILE,sha=process.env.CB_CHARACTER_SHA,bytes=Number(process.env.CB_CHARACTER_BYTES);
@@ -94,7 +97,9 @@ export async function startServer(port=5778,{camera=new CameraBridge(),backgroun
    res.end(req.method==='HEAD'?undefined:data);
   }catch{res.writeHead(404);res.end('Not found');}
  });
- server.on('close',()=>{void camera.stop(camera.owner);});server.requestTimeout=5000;
+ // 显式退出路径等待远端清理；普通 close 仍触发清理，但不能把网络失败当作成功。
+ server.closeCloud=()=>cloud.close();
+ server.on('close',()=>{void camera.stop(camera.owner);void cloud.close();});server.requestTimeout=5000;
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',resolve);});
  return server;
 }
@@ -109,7 +114,14 @@ if(process.argv[1]===fileURLToPath(import.meta.url)){
  const server=await startServer(port,{camera});
  console.log(hosted?JSON.stringify({port:server.address().port}):`CallBridge 形象实验：http://127.0.0.1:${server.address().port}\n采集与视频输出默认关闭；当前输出目标：${target}；需主动启用。按 Ctrl+C 退出。`);
  let closing=false;
- const shutdown=async()=>{if(closing)return;closing=true;server.close();server.closeAllConnections();await camera.stop(camera.owner);process.exit();};
+ const shutdown=async()=>{
+  if(closing)return;closing=true;server.close();server.closeAllConnections();
+  const [cameraResult,cloudResult]=await Promise.allSettled([camera.stop(camera.owner),server.closeCloud()]);
+  const unresolved=cloudResult.status==='rejected'?1:cloudResult.value.filter(r=>r.status==='rejected'||r.value.remoteMayBeActive).length;
+  // 退出不能证明远端已停止；仅输出计数，不泄露账号、请求体或临时会话令牌。
+  if(unresolved)console.error(`Cloud cleanup unresolved: ${unresolved}; check provider dashboard`);
+  process.exit(unresolved||cameraResult.status==='rejected'?1:0);
+ };
  for(const signal of ['SIGINT','SIGTERM'])process.on(signal,shutdown);
  if(hosted){process.stdin.resume();process.stdin.on('end',shutdown);}
 }

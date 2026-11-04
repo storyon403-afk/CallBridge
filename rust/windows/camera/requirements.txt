@@ -1,0 +1,4 @@
+# 摄像头依赖只在 Windows 构建时显式恢复，运行时不下载、不安装驱动。
+numpy==2.3.4
+pyvirtualcam==0.15.0
+pyinstaller==6.16.0

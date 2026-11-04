@@ -1,6 +1,6 @@
 # CallBridge 功能接入图
 
-对应 0.0.2。CallBridge 负责插件接入与通话输出；模型效果由各插件提供。
+对应 0.0.3。CallBridge 负责插件接入与通话输出；模型效果由各插件提供。
 
 ```mermaid
 flowchart TB
@@ -32,7 +32,7 @@ flowchart TB
 
 官方插件显示“待发布”时暂时不能下载。视频通话使用 OBS Virtual Camera；自有摄像头需要另外的开发者签名和安装配置。
 
-使用见 [GETTING_STARTED](GETTING_STARTED.md)，插件见 [官方目录](plugins/official/README.md)与[接入教程](插件接入教程.md)。上传范围见 [RELEASING](RELEASING.md#github-上传范围)。
+使用见 [GETTING_STARTED](GETTING_STARTED.md)，插件见 [官方目录](plugins/official/README.md)与[接入教程](插件接入教程.md)。上传范围见 [RELEASING](RELEASING.md#github-upload-scope)。
 
 ## 普通通话的声音路径
 

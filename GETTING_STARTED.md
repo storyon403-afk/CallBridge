@@ -2,17 +2,19 @@
 
 [中文](#中文使用流程) · [English](#install-the-app)
 
-Version **0.0.2**. You need an **Apple Silicon Mac running macOS 26 or later**.
+Version **0.0.3** supports **macOS 26+ on Apple Silicon** and **Windows 11 x64**.
+
+For Windows, download `CallBridge-0.0.3-windows-x64.zip`, fully extract it and open `CallBridge.exe`. See the [portable guide](rust/windows/PORTABLE.md) and [Windows feature scope](rust/windows/README.md). Windows updates are manual. The instructions below cover macOS.
 
 ## Install the App
 
-Download `CallBridge-0.0.2-macos-arm64.zip` from [Releases](https://github.com/storyon403-afk/CallBridge/releases). Unzip it and move `CallBridge.app` to Applications, then double-click to open it. The ZIP includes the video runtime; you do not need to install Node.js separately.
+Download `CallBridge-0.0.3-macos-arm64.zip` from [Releases](https://github.com/storyon403-afk/CallBridge/releases). Unzip it and move `CallBridge.app` to Applications, then double-click to open it. The ZIP includes the video runtime; you do not need to install Node.js separately.
 
 The App is not Apple signed or notarized. If macOS blocks the first launch, open **System Settings → Privacy & Security** and review the message for CallBridge. Use **Open Anyway** only if you trust the download. Do not turn off system security protections. If the App is reported as damaged, download a fresh copy and compare its checksum with `SHA256SUMS`.
 
 Optional voice models, a virtual audio device, and OBS are separate downloads. Start with a system voice and the preview button before setting up a call.
 
-To update, quit CallBridge with **⌘Q**, replace the App, and reopen it. Voice and device choices stay saved. A draft stays only until you quit.
+Downloaded releases install verified updates when you quit; reopen to use the new version. See [Automatic updates](#automatic-updates). For the first upgrade from 0.0.2 or earlier, quit with **⌘Q** and replace the App manually.
 
 ## Text bar and windows
 
@@ -54,9 +56,17 @@ Open **Official plugins** from Voice → Audio plugins, Audio mix → Background
 
 To import a package you already have, click **Import local plugin…**, choose its folder, `.cbplugin`, or `.zip` file, then select the installed item. Downloading or importing does not start playback or the camera. See [plugin instructions](https://github.com/storyon403-afk/CallBridge/blob/main/plugins/official/README.md).
 
+## Automatic updates
+
+Downloaded releases check GitHub for updates every 24 hours while CallBridge is running. Updates are downloaded and signature-verified in the background, then installed when you quit; reopen to use the new version. If the App is closed or the Mac is asleep/offline, checking resumes when it is running and online again. There is no separate background service.
+
+Use **Check for Updates…** in the CallBridge or menu bar menu to check immediately. **Automatically Check and Install Updates** disables or enables future automatic checks and downloads; an update already prepared may still install on quit. System authorization may be needed when the App is not writable. Settings and installed plugins remain in Application Support; drafts still end with the session.
+
+Version 0.0.2 and earlier require one manual replacement with an updater-enabled release. Source builds do not update themselves.
+
 ## Build from source
 
-Install Xcode Command Line Tools, Rust/Cargo 1.88 or later, Node.js 22 or later, npm, and Python 3. Use `xcode-select --install` for Apple's tools, [rustup](https://rustup.rs/) for Rust, and [Node.js](https://nodejs.org/en/download) for Node.
+Install Xcode Command Line Tools, Rust/Cargo 1.88 or later, Node.js 22 or later, npm, and Python 3.12 or later. Use `xcode-select --install` for Apple's tools, [rustup](https://rustup.rs/) for Rust, and [Node.js](https://nodejs.org/en/download) for Node.
 
 ```sh
 git clone https://github.com/storyon403-afk/CallBridge.git
@@ -64,6 +74,7 @@ cd CallBridge
 cargo fetch --locked --manifest-path rust/Cargo.toml
 cargo fetch --locked --manifest-path rust/pocket/Cargo.toml
 sh rust/scripts/avatar-lab.sh prepare
+python3 scripts/prepare-sparkle.py
 sh rust/scripts/build-app.sh
 ```
 
@@ -114,11 +125,15 @@ If you move the checkout, update your wrapper paths. `./CB` and `./CBT` are the 
 
 ### 安装和更新
 
-到 [Releases](https://github.com/storyon403-afk/CallBridge/releases) 下载 `CallBridge-0.0.2-macos-arm64.zip`，解压，把 `CallBridge.app` 拖进“应用程序”，双击打开。需要 Apple Silicon Mac 和 macOS 26 或更新版本，安装包已带画面运行环境，不必另外安装 Node.js。
+Windows 11 x64 用户请下载 `CallBridge-0.0.3-windows-x64.zip`，完整解压后打开 `CallBridge.exe`；可先运行 `Test-Windows.cmd` 检查组件。参见 [Windows 便携包说明](rust/windows/PORTABLE.md)及[功能范围](rust/windows/README.md)。Windows 版暂不支持自动更新，升级时退出旧版，完整解压新版后运行。以下步骤适用于 macOS。
+
+到 [Releases](https://github.com/storyon403-afk/CallBridge/releases) 下载 `CallBridge-0.0.3-macos-arm64.zip`，解压，把 `CallBridge.app` 拖进“应用程序”，双击打开。需要 Apple Silicon Mac 和 macOS 26 或更新版本，安装包已带画面运行环境，不必另外安装 Node.js。
 
 App 尚未经过苹果发布签名和公证。如果第一次打开被拦截，到“系统设置 → 隐私与安全性”查看 CallBridge 的提示；确认信任下载来源后再点“仍要打开”。不要关闭系统安全保护。如果提示文件损坏，请重新下载，并与 `SHA256SUMS` 中的校验码对照。
 
-更新时先按 **⌘Q** 退出，再替换 App 并重新打开。音色和设备选择会保存；输入框草稿只保留到本次退出。
+下载的发行版在运行时每 24 小时向 GitHub 检查更新，后台下载并验证签名，退出时自动安装，下次打开使用新版。应用未运行、电脑睡眠或断网时，等恢复运行和联网后再继续检查，不安装额外常驻服务。菜单中的“检查更新…”可立即检查，“自动检查并安装更新”可关闭后续自动检查和下载；已经准备好的更新仍可能在退出时安装。安装位置不可写时，系统可能要求授权。音色、设备设置和已安装插件保留；输入框草稿只保留到本次退出。
+
+0.0.2 及更早版本需要先手动替换一次才能获得自动更新：按 **⌘Q** 退出，再替换 App 并重新打开。源码构建不自动更新。
 
 如果想自己构建，先安装上方 [Build from source](#build-from-source) 列出的工具，再依次执行那里的命令。需要 `cb`、`cbt` 命令时，按 [Global commands](#global-commands-one-time-setup) 配置一次。
 

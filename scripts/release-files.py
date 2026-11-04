@@ -4,11 +4,11 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-ROOT_FILES = {'CB', 'CBT', '.gitignore', 'LICENSE', 'NOTICE', 'LICENSING.md',
+ROOT_FILES = {'CB', 'CBT', 'CB.ps1', 'CBT.ps1', '.gitignore', 'LICENSE', 'NOTICE', 'LICENSING.md',
               'README.md', 'README.en.md', 'README.zh-CN.md', 'GETTING_STARTED.md',
               'SECURITY.md', 'RELEASING.md', 'THIRD_PARTY_NOTICES.md', 'schedule.md', 'graph.md', '插件接入教程.md'}
 PREFIXES = ('rust/src/', 'rust/native/', 'rust/include/', 'rust/tests/', 'rust/examples/', 'rust/scripts/',
-            'rust/pocket/', 'rust/avatar/', 'scripts/', 'release/', 'plugins/', 'website/', '.github/', 'icon/', 'assets/')
+            'rust/pocket/', 'rust/avatar/', 'rust/windows/', 'scripts/', 'release/', 'plugins/', 'website/', '.github/', 'icon/', 'assets/')
 BLOCKED = {'build', 'target', 'node_modules', '__pycache__', '.git', '.env', 'reference'}
 
 def files(root=ROOT):

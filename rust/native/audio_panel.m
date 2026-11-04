@@ -113,6 +113,7 @@ static NSView *card(NSArray<NSView *> *views) {
     NSView *voice=CBColumn(@[card(@[field(CBL(@"声音"),controls[@"voices"]),field(CBL(@"语音输出"),controls[@"outputMode"]),field(CBL(@"降噪效果"),controls[@"denoise"])]),fixedRow(@[detailPreview,controls[@"refresh"]])]);
     NSView *output=CBColumn(@[card(@[CBSection(CBL(@"本机试听")),controls[@"previewDevices"]]),card(@[CBSection(CBL(@"通话输出")),controls[@"sendDevices"]]),controls[@"route"],controls[@"routeHelp"]]);
     NSView *resources=CBColumn(@[card(@[controls[@"zhStatus"],fixedRow(@[controls[@"zhDownload"],controls[@"zhUse"]])]),card(@[controls[@"enStatus"],fixedRow(@[controls[@"enDownload"],controls[@"enUse"]])]),CBRow(@[controls[@"official"],controls[@"import"]])]);
+    if(controls[@"cloud"])[(NSStackView *)resources addArrangedSubview:controls[@"cloud"]];
     columns=@{@"home":home,@"voice":voice,@"output":output,@"plugins":resources};
         self.pageTitles=@{@"voice":CBL(@"声音"),@"output":CBL(@"输出设备"),@"plugins":CBL(@"音频插件")};
     }

@@ -11,6 +11,7 @@
 默认入口启动窗口；带 --*-smoke 参数时执行指定诊断。物理试听和虚拟发送分别要求显式确认。
 */
 #import "localization.h"
+#import "app_updater.h"
 #import <AppKit/AppKit.h>
 #import <AVFAudio/AVFAudio.h>
 #import "speech_job.h"
@@ -29,6 +30,7 @@
 #import "theme.h"
 #import "panel_ui.h"
 #import "audio_panel.h"
+#import "service_panel.h"
 #import "official_plugins.h"
 #import "window_workspace.h"
 #import "settings.h"
@@ -436,6 +438,7 @@ static int virtual_route_report(void) {
 @property(nonatomic) BOOL pluginImportBusy;
 @property(nonatomic, strong) CBPersonalVoiceController *personalController;
 @property(nonatomic, strong) CBAvatarController *avatarController;
+@property(nonatomic, strong) CBServicePanel *cloudPanel,*transcriptionPanel;
 // 只记录本次用户命令的输出目的；播放状态仍只由 Rust session 管理。
 @property(nonatomic, copy) NSString *previewUID;
 @property(nonatomic, strong) NSSlider *volume;
@@ -472,6 +475,7 @@ static int virtual_route_report(void) {
 @property(nonatomic, strong) NSMenuItem *backgroundInfo;
 // 状态项由应用持有，关闭面板后仍保留入口；退出时交还系统状态栏。
 @property(nonatomic, strong) NSStatusItem *statusItem;
+@property(nonatomic, strong) CBAppUpdater *appUpdater;
 @property(nonatomic, strong) NSButton *backgroundImportButton;
 @property(nonatomic, strong) NSButton *backgroundToggleButton;
 @property(nonatomic, strong) NSButton *backgroundLoopButton;
@@ -704,6 +708,19 @@ static int virtual_route_report(void) {
 - (void)officialPlugins:(id)sender { (void)sender;CBShowOfficialPlugins(self.window,nil,nil); }
 - (void)showMix:(id)sender {
     CBShowWindow(self.mixWindow, sender);
+}
+- (void)showCloud:(id)sender {
+    (void)sender;if(!self.cloudPanel)self.cloudPanel=[[CBServicePanel alloc] initCloud:YES];
+    [self.cloudPanel presentFrom:NSApp.keyWindow?:self.window];
+}
+- (void)showTranscription:(id)sender {
+    (void)sender;if(!self.transcriptionPanel){
+        self.transcriptionPanel=[[CBServicePanel alloc] initCloud:NO];__weak CallBridgeApp *weak=self;
+        self.transcriptionPanel.openAudioPlugins=^{[weak showAudio:nil];[weak.audioPanel showPage:@"plugins"];};
+        self.transcriptionPanel.openText=^{[weak showText:nil];};
+        self.transcriptionPanel.openOutput=^{[weak showAudio:nil];[weak.audioPanel showPage:@"output"];};
+    }
+    [self.transcriptionPanel presentFrom:NSApp.keyWindow?:self.window];
 }
 - (void)showPlaceholder:(NSButton *)sender {
     // 预留模块只解释能力边界，不请求摄像头、下载模型或假装已有引擎。
@@ -1173,6 +1190,7 @@ static int virtual_route_report(void) {
 }
 - (void)fail:(NSString *)message {
     // 故障也必须同时撤销 Rust 代次、原生合成任务和设备输出，不只是修改提示文字。
+    [self.cloudPanel stop];[self.transcriptionPanel stop];
     cb_session_cancel(&_session);
     [self clearPreparedSpeech];
     cb_sender_cancel(_sender);
@@ -1526,6 +1544,8 @@ static int virtual_route_report(void) {
     [menu insertItem:[self languageMenuItem] atIndex:5];
     [menu insertItem:[NSMenuItem separatorItem] atIndex:6];
     [menu insertItem:[[NSMenuItem alloc] initWithTitle:CBL(@"官方插件") action:@selector(officialPlugins:) keyEquivalent:@""] atIndex:7];[menu itemAtIndex:7].target=self;
+    [menu addItem:NSMenuItem.separatorItem];
+    [self.appUpdater addItemsToMenu:menu];
     self.statusItem.menu = menu;
 }
 // 语言菜单使用语言自身名称，切换后用户仍能识别；仅保存偏好，不重建运行面板。
@@ -1556,13 +1576,14 @@ static int virtual_route_report(void) {
     [appMenu addItemWithTitle:CBL(@"退出 CallBridge") action:@selector(terminate:) keyEquivalent:@"q"];
     [appMenu insertItem:[self languageMenuItem] atIndex:0];
     [appMenu insertItem:NSMenuItem.separatorItem atIndex:1];
+    [self.appUpdater addItemsToMenu:appMenu];
     application.submenu = appMenu;
     NSMenuItem *windowsItem = [[NSMenuItem alloc] initWithTitle:CBL(@"窗口") action:nil keyEquivalent:@""];
     NSMenu *windows = [[NSMenu alloc] initWithTitle:CBL(@"窗口")];
     windowsItem.submenu = windows;
     [bar addItem:windowsItem];
-    NSArray *windowTitles = @[CBL(@"主控制面板"), CBL(@"文字输入"), CBL(@"音频模拟"), CBL(@"混音设置"), CBL(@"停止全部")];
-    const SEL windowActions[] = {@selector(showMain:), @selector(showText:), @selector(showAudio:), @selector(showMix:), @selector(stop:)};
+    NSArray *windowTitles = @[CBL(@"主控制面板"), CBL(@"文字输入"), CBL(@"音频模拟"), CBL(@"混音设置"), CBL(@"停止全部"), CBL(@"云端服务"), CBL(@"声音转录")];
+    const SEL windowActions[] = {@selector(showMain:), @selector(showText:), @selector(showAudio:), @selector(showMix:), @selector(stop:), @selector(showCloud:), @selector(showTranscription:)};
     for (NSUInteger index = 0; index < windowTitles.count; ++index) {
         NSMenuItem *item = [windows addItemWithTitle:windowTitles[index] action:windowActions[index]
             keyEquivalent:index == 1 ? @"t" : (index == 4 ? @"." : @"")];
@@ -1877,6 +1898,7 @@ static int virtual_route_report(void) {
     self.backgroundGain = 0.1f;
     self.environmentGain = 0.25f;
     self.backgroundLoop = YES;
+    self.appUpdater = [[CBAppUpdater alloc] initWithDiagnosticMode:self.uiSmoke];
     [self buildMenu];
     self.activityLabel = [NSTextField labelWithString:CBL(@"未采集麦克风")];
     self.activityLabel.font = CBDetailFont();
@@ -1894,6 +1916,7 @@ static int virtual_route_report(void) {
     self.audioWindow = CBUtilityWindow(CBL(@"音频模拟"), CBAudioSize, CBAudioSize, NO);
     self.mixWindow = CBUtilityWindow(CBL(@"混音设置"), CBMixSize, CBMixSize, NO);
     self.avatarController=[[CBAvatarController alloc] initWithMemoryCheck:NO];
+    __weak CallBridgeApp *cloudOwner=self;self.avatarController.openCloud=^{[cloudOwner showCloud:nil];};
     __weak CallBridgeApp *weakVideoOwner=self;
     self.avatarController.targetChanged=^(NSString *target) { [weakVideoOwner rememberSetting:@"video_target" value:target]; };
     self.avatarController.compositionChanged=^(NSDictionary *composition) { [weakVideoOwner rememberSetting:@"video_composition" value:composition]; };
@@ -2076,7 +2099,7 @@ static int virtual_route_report(void) {
         @"route":self.routeLabel,@"routeHelp":self.routeHelpButton,
         @"zhStatus":self.pocketStatus,@"zhDownload":self.pocketButton,@"zhUse":self.pocketUseButton,
         @"enStatus":self.englishStatus,@"enDownload":self.englishButton,@"enUse":self.englishUseButton,
-        @"official":[NSButton buttonWithTitle:CBL(@"官方插件") target:self action:@selector(officialAudioPlugins:)],@"import":self.localPluginButton,@"personal":personal,@"text":openText,
+        @"cloud":[NSButton buttonWithTitle:CBL(@"云端服务") target:self action:@selector(showCloud:)],@"official":[NSButton buttonWithTitle:CBL(@"官方插件") target:self action:@selector(officialAudioPlugins:)],@"import":self.localPluginButton,@"personal":personal,@"text":openText,
         @"stop":[self stopMirror],@"status":[self statusMirror]}];
     self.mixPanel=[[CBAudioPanel alloc] initMixingWithWindow:self.mixWindow controls:@{
         @"fileName":self.backgroundFileLabel,@"fileImport":self.backgroundImportButton,@"fileClear":self.backgroundClearButton,
@@ -2090,7 +2113,7 @@ static int virtual_route_report(void) {
         CBModuleTile(CBL(@"音频模拟"), CBL(@"音色 · 引擎 · 通话输出"), @"waveform", self, @selector(showAudio:)),
         CBModuleTile(CBL(@"混音设置"), CBL(@"文件背景 · 真实环境"), @"slider.horizontal.3", self, @selector(showMix:)),
         CBModuleTile(CBL(@"画面处理"), CBL(@"形象插件"), @"person.crop.rectangle", self, @selector(showVideo:)),
-        CBModuleTile(CBL(@"待添加"), CBL(@"留给下一种可能"), @"plus", self, @selector(showPlaceholder:))
+        CBModuleTile(CBL(@"声音转录"), CBL(@"变声 · 可选转文字"), @"mic", self, @selector(showTranscription:))
     ];
     self.moduleScroll = [[NSScrollView alloc] init];
     self.moduleScroll.drawsBackground = NO;
@@ -2629,10 +2652,17 @@ static int virtual_route_report(void) {
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)application {
     if (self.uiSmoke) return NSTerminateNow;
     if (self.terminating) return NSTerminateLater;
+    if(self.cloudPanel.remotePending){
+        NSAlert *alert=[NSAlert new];alert.messageText=CBL(@"云端任务可能仍在运行");
+        alert.informativeText=CBL(@"退出不会取消远端图片任务，请在厂商控制台确认。保存任务状态需保持应用打开。");
+        [alert addButtonWithTitle:CBL(@"继续退出")];[alert addButtonWithTitle:CBL(@"取消")];
+        if([alert runModal]!=NSAlertFirstButtonReturn)return NSTerminateCancel;
+    }
     [self stop:nil];
     self.terminating = YES;
     CBPocketCancelInstall(); CBEnglishCancelInstall();
     [self.personalController cancel];
+    [self.cloudPanel shutdown];[self.transcriptionPanel shutdown];
     [self.avatarController shutdown];
     // 正常退出等已提交的写入完成，但不在主线程同步等磁盘，也不在等待期间继续发声。
     dispatch_async(self.settingsQueue, ^{
@@ -2656,6 +2686,7 @@ static int virtual_route_report(void) {
     [self.avatarController shutdown];
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
     [NSNotificationCenter.defaultCenter removeObserver:self];
+    [self.cloudPanel shutdown];[self.transcriptionPanel shutdown];
     CBStopOfficialPlugins();
     if (self.statusItem) [NSStatusBar.systemStatusBar removeStatusItem:self.statusItem];
     self.statusItem = nil;
@@ -2666,6 +2697,7 @@ static int virtual_route_report(void) {
 int main(int argc, const char *argv[]) {
     // 4. 参数路由在启动 GUI 前完成；主动发送必须带 --confirm-virtual-io。
     @autoreleasepool {
+        if (argc==2 && strcmp(argv[1],"--service-ui-check")==0) return CBServicePanelCheck()?0:1;
         if (argc==2 && strcmp(argv[1],"--workspace-check")==0) return CBWorkspaceCheck()?0:1;
         if (argc==2 && strcmp(argv[1],"--recording-hotkey-check")==0) return CBRecordingHotkeyCheck();
         if (argc==5 && strcmp(argv[1],"--avatar-plugin-check")==0) return CBAvatarPluginCheck([NSString stringWithUTF8String:argv[2]],[NSString stringWithUTF8String:argv[3]],[NSString stringWithUTF8String:argv[4]]);

@@ -26,10 +26,13 @@ for lang, table in tables.items():
     for key, value in table.items():
         assert value, (lang, key, 'empty translation')
         assert formats(key) == formats(value), (lang, key, 'format mismatch')
-for name in ('app.m', 'panel_ui.m', 'audio_panel.m', 'avatar_panel.m', 'personal_voice.m', 'window_workspace.m', 'localization.m', 'english_provider.m', 'plugin_store.m', 'official_plugins.m'):
+for name in ('app.m', 'app_updater.m', 'service_panel.m', 'panel_ui.m', 'audio_panel.m', 'avatar_panel.m', 'personal_voice.m', 'window_workspace.m', 'localization.m', 'english_provider.m', 'plugin_store.m', 'official_plugins.m'):
     source = (ROOT / 'native' / name).read_text()
     for raw in re.findall(r'CBL\(@("(?:[^"\\]|\\.)*")\)', source):
         assert json.loads(raw) in base, (name, raw, 'missing translation')
+source = (ROOT / 'native/service_panel.m').read_text()
+for raw in re.findall(r'(?:button|row|entry|select|field):@("(?:[^"\\]|\\.)*")', source):
+    assert json.loads(raw) in base, ('service_panel.m', raw, 'missing control translation')
 # 语音样本和用户数据不能混入 UI 词表。
 assert '你好，这是我的声音。欢迎使用 CallBridge。' not in base
 assert '你好，这是 CallBridge 发送器测试。' not in base

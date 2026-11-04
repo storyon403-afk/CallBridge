@@ -8,6 +8,7 @@ CallBridge's noncommercial license applies to its original code only. It does no
 | Three.js, three-vrm, KalidoKit | MIT; see `rust/avatar/package-lock.json` and bundled notices | Web renderer code; notices retained |
 | Pocket TTS reference implementation | Kyutai MIT; `rust/pocket/POCKET-TTS-LICENSE` | Adapted inference code; license retained |
 | Chinese default condition | Derived from the fixed public Pocket Chinese package; provenance in `rust/pocket/THIRD_PARTY.md` | Small compiled reference features, not a user's personal recording |
+| Sparkle | [Sparkle project](https://github.com/sparkle-project/Sparkle), permissive license; version and archive digest in `release/sparkle.json` | Update framework and helpers bundled; full `SPARKLE-LICENSE` included |
 | Node.js | Official locked ARM64 archive; Node and bundled component license text | App bundle includes the runtime and `NODE-LICENSE` |
 | MediaPipe Holistic | Apache-2.0; optional engine downloads fixed upstream resources | Not bundled model weights; notices accompany the host |
 | Original avatar | VRM1_Constraint_Twist_Sample, (c) 2022 pixiv Inc.; VRM Public License 1.0 and embedded settings | Optional App resource; original model also used by the website demo with its own notices |

@@ -16,7 +16,25 @@ try{
  await context.route('**/*',route=>{const url=route.request().url();if(url.startsWith(origin)||url.startsWith('blob:')||url.startsWith('data:'))return route.continue();external.push(url);return route.abort();});
  await context.addInitScript(()=>{window.mediaAttempts=0;navigator.mediaDevices.getUserMedia=()=>{window.mediaAttempts++;throw Error('Website must not open devices');};});
  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));page.on('response',r=>{if(r.status()>=400)failed.push([r.url(),r.status()]);});page.on('request',r=>requests.push(r.url()));
- await page.goto(origin);assert.equal(await page.locator('[role=tab]').count(),4);assert.equal(await page.locator('html').getAttribute('lang'),'en');assert.equal(requests.some(url=>url.endsWith('cheng.vrm')),false);
+ await page.goto(origin);assert.equal(await page.locator('[role=tab]').count(),9);assert.equal(await page.locator('html').getAttribute('lang'),'en');assert.equal(requests.some(url=>url.endsWith('cheng.vrm')),false);
+ // 新功能逐页核对双语、全部入口可见和窄屏排版，避免内容更新只停留在页尾。
+ for(const lang of ['en','zh']){
+  if(lang==='zh')await page.locator('#language').click();
+  for(const id of ['cloud','voice-input','updates','plugins','windows']){
+   await page.locator('#tab-'+id).click();assert.ok(await page.locator('.feature-card').count()>=3);
+   assert.equal(await page.locator('#media-panel').getAttribute('aria-labelledby'),'tab-'+id);
+   for(const width of [1440,768,375,320]){
+    await page.setViewportSize({width,height:1000});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`${lang}/${id} overflow ${width}`);
+    assert.ok(await page.locator('[role=tab]').evaluateAll(tabs=>tabs.every(tab=>{const r=tab.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})),`${lang} hidden tabs ${width}`);
+   }
+  }
+  await page.locator('#tab-cloud').click();assert.equal(await page.locator('.feature-card').count(),8);
+  await page.setViewportSize({width:1440,height:1000});await page.locator('#showcase').screenshot({path:out+'cloud-'+lang+'.png'});
+  if(lang==='zh'){await page.setViewportSize({width:375,height:1000});await page.locator('#showcase').screenshot({path:out+'cloud-mobile.png'});}
+ }
+ assert.equal(await page.locator('#get-started p, #get-started h2').count(),0);
+ checks.push('Five new feature panels in both languages; all nine tabs visible at 1440 / 768 / 375 / 320 px; concise footer');
+ await page.setViewportSize({width:1440,height:1000});await page.locator('#language').click();await page.locator('#tab-studio').click();
  await page.locator('.studio-primary').click();await page.waitForFunction(()=>document.querySelector('.call-canvas')?.dataset.ready==='true',{},{timeout:60000});
  await page.locator('[data-action=wave]').click();await page.waitForTimeout(900);await page.locator('.studio-primary').click();assert.equal(await page.locator('.call-preview').evaluate(el=>el.classList.contains('connected')),true);
  await page.locator('#showcase').screenshot({path:out+'studio-en.png'});
@@ -31,10 +49,10 @@ try{
  await page.setViewportSize({width:1440,height:1000});await page.locator('#tab-experience').click();await page.locator('.experience-window').evaluateAll(images=>Promise.all(images.map(img=>img.decode())));await page.locator('.experience-steps button').nth(4).click();assert.equal(await page.locator('.experience-scene').getAttribute('data-step'),'4');
  await page.locator('#language').click();assert.equal(await page.locator('.experience-main').getAttribute('src'),'media/ui-en-main.png');checks.push('Native window experience preserved in both languages');
  await page.locator('#tab-recordings').click();for(let i=0;i<3;i++){await page.locator('.recording-choice button').nth(i).click();assert.equal(await page.locator('#media-panel video').count(),2);for(const selector of ['.workflow video','.result video']){assert.equal(await page.locator(selector).evaluate(v=>v.paused),true);await page.locator(selector).evaluate(v=>new Promise((resolve,reject)=>{v.preload='auto';v.onloadeddata=resolve;v.onerror=()=>reject(Error('video failed'));v.load();}));}}checks.push('All three WeChat recordings load with sound available and autoplay off');
- await page.locator('#tab-voice').click();await page.locator('.single-media img').evaluate(img=>img.decode());await page.locator('#tab-voice').press('Home');assert.equal(await page.locator('#tab-studio').getAttribute('aria-selected'),'true');
+ await page.locator('#tab-voice').click();await page.locator('.single-media img').evaluate(img=>img.decode());await page.locator('#tab-voice').press('Home');assert.equal(await page.locator('#tab-cloud').getAttribute('aria-selected'),'true');
  await page.reload();assert.equal(await page.locator('html').getAttribute('lang'),'en');checks.push('Keyboard navigation and language persistence');
  // 失败必须保留可用的重试入口，离开未完成加载不能挂载旧画布。
- await page.route('**/cheng.vrm',r=>r.abort());await page.locator('.studio-primary').click();await page.waitForFunction(()=>document.querySelector('.studio-status')?.textContent.includes('unavailable'));assert.equal(await page.locator('.studio-primary').isEnabled(),true);await page.unroute('**/cheng.vrm');await page.locator('.studio-primary').click();await page.locator('#tab-recordings').click();await page.waitForTimeout(500);assert.equal(await page.locator('.call-canvas').count(),0);checks.push('Load failure retries; leaving a pending preview cancels its owner');
+ await page.locator('#tab-studio').click();await page.route('**/cheng.vrm',r=>r.abort());await page.locator('.studio-primary').click();await page.waitForFunction(()=>document.querySelector('.studio-status')?.textContent.includes('unavailable'));assert.equal(await page.locator('.studio-primary').isEnabled(),true);await page.unroute('**/cheng.vrm');await page.locator('.studio-primary').click();await page.locator('#tab-recordings').click();await page.waitForTimeout(500);assert.equal(await page.locator('.call-canvas').count(),0);checks.push('Load failure retries; leaving a pending preview cancels its owner');
  const reduced=await browser.newContext({viewport:{width:1000,height:800},reducedMotion:'reduce',permissions:[]});const rp=await reduced.newPage();await rp.goto(origin);await rp.locator('#tab-experience').click();assert.equal(await rp.locator('.experience-play').innerText(),'Play');assert.equal(await rp.locator('html').evaluate(el=>getComputedStyle(el).scrollBehavior),'auto');checks.push('Reduced motion starts paused');
  assert.equal(await page.evaluate(()=>window.mediaAttempts),0);assert.deepEqual(errors,[]);assert.deepEqual(failed,[]);assert.deepEqual(external,[]);
  const report={passed:true,checks,errors,failed,external,physicalMedia:false};await writeFile(out+'report.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));

@@ -4,6 +4,7 @@
 #import <WebKit/WebKit.h>
 @interface CBAvatarController : NSWindowController <NSWindowDelegate, WKNavigationDelegate, WKUIDelegate>
 @property(nonatomic, copy) NSString *target;
+@property(nonatomic, copy) void (^openCloud)(void);
 @property(nonatomic, copy) void (^targetChanged)(NSString *target);
 @property(nonatomic, copy) void (^frameChanged)(void);
 // 只保存两个互不排斥的效果槽和用户文件引用，不保存相机/发送授权或空背景像素。

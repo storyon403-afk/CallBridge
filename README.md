@@ -3,43 +3,38 @@
 <p align="center">Type it. Say it. Join the call.</p>
 <p align="center">English · <a href="README.zh-CN.md">简体中文</a> · <a href="https://storyon403-afk.github.io/CallBridge/">See it in action ↗</a></p>
 
-CallBridge turns typed messages into speech for your calls. Choose a voice, add background sound, or use a virtual character and a different video background.
+CallBridge brings typed speech, voices, background audio and virtual characters into your calls through virtual audio and video devices.
 
-**Version 0.0.2 · Apple Silicon Mac · macOS 26 or later.**
+**0.0.3 · macOS 26+ (Apple Silicon) · Windows 11 x64**
+
+Windows has a portable package for system speech, file mixing and virtual-character video. Pocket/personal voices, plugin installation, persistent ambience, cloud operations and automatic updates remain macOS-only. See [Windows installation and scope](rust/windows/README.md).
+
+## Features
+
+- **Speech & voices** — System TTS, Pocket, personal voices, preview and prepared speech.
+- **Audio mixing** — Speech, background files and live ambience with independent volume controls.
+- **Virtual characters** — Cheng · Call Outfit, VRM characters, image/video backgrounds and OBS Virtual Camera output.
+- **Voice input settings** — Microphone selection, separate preview devices, voice and output controls.
+- **Cloud services** — Provider catalog, account configuration, guides and FASHN image try-on jobs.
+- **Plugins** — Official catalog, local package import, voice effects, characters and backgrounds.
+- **App updates** — Release builds check daily, verify signed downloads and install on quit.
+
+The cloud catalog includes **Decart Lucy, LiveAvatar, Tavus CVI, FASHN, ZEGO, Xmov, HeyGen Video and Synthesia**.
 
 ## Get started
 
-1. Download the App ZIP from [Releases](https://github.com/storyon403-afk/CallBridge/releases), unzip it, and move **CallBridge.app** to Applications. You can also [build from source](GETTING_STARTED.md#build-from-source).
-2. Open CallBridge and choose a system voice. No voice model download is needed to begin.
-3. Open **Text input**, type your message, and click the small arrow on the right. Choose **Preview text** to hear it through your speakers or headphones.
-4. To use it in a call, [set up the call app's microphone](GETTING_STARTED.md#audio). For video, use [OBS Virtual Camera](GETTING_STARTED.md#video).
+1. Download your platform package from [Releases](https://github.com/storyon403-afk/CallBridge/releases). On Mac, move the App to Applications; on Windows, fully extract the ZIP and open `CallBridge.exe`.
+2. Choose a system voice, open **Text input**, and preview your message.
+3. Configure a [virtual microphone](GETTING_STARTED.md#audio) for call audio or [OBS Virtual Camera](GETTING_STARTED.md#video) for video.
 
-The App has not been signed or notarized by Apple. macOS may show a warning when you first open it. See the [opening instructions](GETTING_STARTED.md#install-the-app).
+Mac: **⌘↩** Send · **⌘.** Stop. Windows: **Ctrl+Enter** Send · **Ctrl+.** Stop. **Enter** adds a new line.
 
-## A small panel beside your call
+Resizable panels and floating widgets stay beside your call. The macOS edition offers solid or translucent panels and Chinese, English or Japanese menus.
 
-- Resize the text bar by dragging an edge. Move it with the six-dot handle on the left or its title bar.
-- The arrow on the right shows voice settings, preview, volume, and permission to send.
-- Shrink a panel and release to turn it into a floating widget. Double-click the widget to bring it back; your draft stays there.
-- Choose a solid or translucent background in the main panel.
-- Choose **简体中文 / English / 日本語** from the CallBridge menu, then quit and reopen the App.
-- **⌘↩** sends; **⌘.** stops. Enter adds a new line.
-
-[Full instructions](GETTING_STARTED.md) · [Plugins](plugins/official/README.md) · [Make a plugin](插件接入教程.md)
-
-## Build and launch
-
-```sh
-git clone https://github.com/storyon403-afk/CallBridge.git
-cd CallBridge
-```
-
-Follow the [build instructions and command setup](GETTING_STARTED.md#build-from-source). Then use `cb` for the main panel and `cbt` for the text bar from any folder.
-
-Plugins supply the voices and visual effects; CallBridge connects supported plugins to your call. Model downloads and virtual audio/video devices are installed separately.
+[Installation & usage](GETTING_STARTED.md) · [Build from source](GETTING_STARTED.md#build-from-source) · [Windows 11 x64 guide](rust/windows/README.md) · [Plugin guide](插件接入教程.md)
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE) permits personal and other allowed noncommercial use. Third-party components keep their own licenses. See [license details](LICENSING.md).
+[PolyForm Noncommercial 1.0.0](LICENSE) permits personal and other allowed noncommercial use. Third-party components retain their own licenses. See [license details](LICENSING.md).
 
 UI inspiration: [ftop](https://github.com/Nongfsq/ftop).

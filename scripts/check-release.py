@@ -12,6 +12,10 @@ import re
 import tarfile
 from urllib.parse import unquote, urlsplit
 import zipfile
+import posixpath
+import stat
+import subprocess
+from update_release import verify_feed
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('release_files', ROOT / 'scripts/release-files.py')
@@ -80,11 +84,19 @@ def main():
         sums[name] = checksum
     source_name = f'CallBridge-{version}-source.tar.gz'
     assert source_name in sums and 'SOURCE_MANIFEST.json' in sums and 'UPLOAD_FILES.txt' in sums
+    if f'CallBridge-{version}-windows-x64.zip' in sums:
+        subprocess.run(['python3', str(ROOT / 'scripts/check-windows.py')], check=True)
     source = json.loads((folder / 'SOURCE_MANIFEST.json').read_text())
     assert (source['version'], source['build']) == (version, build)
     inventory = {item['path']: item for item in source['files']}
     assert len(inventory) == len(source['files'])
     assert set(inventory) == set(policy.files()), 'Source inventory is stale'
+    # 源码包必须能找到 Windows 入口和云服务说明，不能依赖被忽略的维护者文档。
+    cloud_guides = ['README', 'api', 'decart', 'liveavatar', 'tavus', 'fashn', 'zego', 'xmov', 'heygen', 'synthesia']
+    source_required = {'CB.ps1', 'CBT.ps1', 'rust/scripts/build-windows.ps1',
+                       'rust/windows/CallBridge.Windows/CallBridge.Windows.csproj'}
+    source_required.update('rust/avatar/cloud-guides/' + name + '.md' for name in cloud_guides)
+    assert source_required <= inventory.keys(), 'Missing platform source or bundled cloud documentation'
     assert (folder / 'UPLOAD_FILES.txt').read_text().splitlines() == sorted(inventory)
     prefix = f'CallBridge-{version}/'
     with tarfile.open(folder / source_name) as archive:
@@ -98,24 +110,46 @@ def main():
             verify_payload((ROOT / name).read_bytes(), item)
     if not args.source_only:
         zip_name = f'CallBridge-{version}-macos-arm64.zip'
-        assert zip_name in sums and 'APP_MANIFEST.json' in sums
+        assert zip_name in sums and 'APP_MANIFEST.json' in sums and 'appcast.xml' in sums
+        verify_feed(folder / 'appcast.xml', folder / zip_name, info)
         manifest = json.loads((folder / 'APP_MANIFEST.json').read_text())
         assert (manifest['version'], manifest['build']) == (version, build)
         entries = {item['path']: item for item in manifest['files']}
         assert len(entries) == len(manifest['files'])
         required = {'Contents/MacOS/CallBridge', 'Contents/MacOS/callbridge-pocket', 'Contents/MacOS/node',
                     'Contents/Resources/GETTING_STARTED.md', 'Contents/Resources/Licenses/LICENSE',
-                    'Contents/Resources/Licenses/THIRD_PARTY_LICENSES.txt', 'Contents/Resources/Licenses/NODE-LICENSE'}
+                    'Contents/Resources/Licenses/THIRD_PARTY_LICENSES.txt', 'Contents/Resources/Licenses/NODE-LICENSE',
+                    'Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle',
+                    'Contents/Resources/Licenses/SPARKLE-LICENSE'}
         assert required <= entries.keys(), 'Missing App runtime or licenses'
+        cloud_required = {'Contents/Resources/Cloud/providers.json', 'Contents/Resources/Cloud/api.md',
+                          'Contents/Resources/Cloud/README.md',
+                          'Contents/Resources/Avatar/cloud/native-host.mjs',
+                          'Contents/Resources/Avatar/cloud/providers.mjs'}
+        cloud_required.update('Contents/Resources/Cloud/' + name + '.md' for name in cloud_guides[2:])
+        assert cloud_required <= entries.keys(), 'Missing cloud host or provider guides'
         with zipfile.ZipFile(folder / zip_name) as archive:
             assert archive.testzip() is None, 'ZIP CRC failure'
             files = [item.filename for item in archive.infolist() if not item.is_dir()]
             verify_archive_paths(files)
             assert set(files) == {'CallBridge.app/' + name for name in entries}
             for name, item in entries.items():
-                verify_payload(archive.read('CallBridge.app/' + name), item)
+                path = 'CallBridge.app/' + name
+                if 'symlink' in item:
+                    target = item['symlink']
+                    assert stat.S_ISLNK(archive.getinfo(path).external_attr >> 16), path
+                    assert archive.read(path).decode() == target
+                    resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
+                    assert not target.startswith('/') and resolved.startswith('CallBridge.app/Contents/'), path
+                else:
+                    verify_payload(archive.read(path), item)
             bundled = plistlib.loads(archive.read('CallBridge.app/Contents/Info.plist'))
             assert (bundled['CFBundleShortVersionString'], bundled['CFBundleVersion']) == (version, build)
+            assert bundled['CBEnableUpdates'] is True
+            for key in ('SUFeedURL', 'SUPublicEDKey', 'SUEnableAutomaticChecks', 'SUAutomaticallyUpdate',
+                        'SUScheduledCheckInterval', 'SUVerifyUpdateBeforeExtraction', 'SURequireSignedFeed',
+                        'SUSignedFeedFailureExpirationInterval', 'SUEnableSystemProfiling'):
+                assert bundled[key] == info[key], key
             assert json.loads(archive.read('CallBridge.app/Contents/Resources/Avatar/runtime.json')) == {'schema': 1, 'node_minimum_major': 22}
             assert archive.read('CallBridge.app/Contents/Resources/GETTING_STARTED.md') == (ROOT / 'GETTING_STARTED.md').read_bytes()
     print(json.dumps({'passed': True, 'version': version, 'build': build, 'source_files': len(inventory),

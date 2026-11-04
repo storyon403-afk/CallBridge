@@ -1,13 +1,22 @@
-# 更新记录
+# Change Log
+
+## 0.0.3
+
+- Windows 11 x64 portable release: system speech, file mixing, WPF panels and virtual-character video output.
+- Cloud catalog/configuration/provider guides, FASHN image jobs and voice-input settings on macOS.
+
+- Daily GitHub update checks in downloaded macOS releases, automatic signed downloads, and installation on quit.
+- Update controls in the application and status menus; development and diagnostic paths stay offline.
+- Signed appcast generation included in release packaging.
 
 ## 0.0.2
 
-- 文字框改成长条，点右侧箭头展开试听和设置。
-- 左侧把手可移动窗口，边缘可以缩放，继续拖小会收成悬浮小组件。
-- 窗口采用更柔和的圆角，可切换实色和半透明背景。
-- 中文、英文、日文同步更新。
-- 音频、混音设置采用概要和详情两层，常用开关更容易找到。
-- 小组件超过五个时合并为“…”；点击展开，双击恢复面板。
-- 增加官方插件入口，支持下载和导入插件。
+- Text input is now a strip; the right arrow expands previews/settings.
+- Drag using the left handle, resize at edges, and shrink further to collapse into a floating widget.
+- Softer rounded windows with solid/translucent backgrounds.
+- Chinese, English, and Japanese updated together.
+- Audio/mixing use summary/detail views for easier access to common controls.
+- More than five widgets group into “…”; click to expand, double-click to restore panels.
+- Official plugin entry supports download/import.
 
-使用步骤见 [GETTING_STARTED.md](GETTING_STARTED.md)，下载内容见 [release/NOTES.md](release/NOTES.md)。
+See [GETTING_STARTED.md](GETTING_STARTED.md) for usage and [release/NOTES.md](release/NOTES.md) for downloads.

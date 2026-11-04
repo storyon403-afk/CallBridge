@@ -16,6 +16,11 @@ export CARGO_TARGET_DIR="$project_root/target"
 sdk_root=$(xcrun --sdk macosx --show-sdk-path)
 app="$project_root/build/app/CallBridge.app"
 mkdir -p "$app/Contents/MacOS"
+# 更新框架需先显式准备；普通构建保持离线，并保留 framework 内的符号链接。
+python3 -c 'import json; from pathlib import Path; assert json.loads(Path("build/sparkle/provenance.json").read_text()) == json.loads(Path("../release/sparkle.json").read_text()), "Run python3 scripts/prepare-sparkle.py from the repository root"'
+mkdir -p "$app/Contents/Frameworks"
+ditto build/sparkle/Sparkle.framework "$app/Contents/Frameworks/Sparkle.framework"
+codesign --verify --deep --strict "$app/Contents/Frameworks/Sparkle.framework"
 
 # offline 禁止构建时下载依赖；release 生成优化后的静态库。
 cargo build --offline --release
@@ -35,8 +40,9 @@ cp 'build/camera/CallBridge Camera.app/Contents/MacOS/callbridge-camera-sender' 
 # dead_strip 去掉未引用代码；这里只链接 App 需要的原生模块，不加入诊断回读器。
 xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
     -isysroot "$sdk_root" -mmacosx-version-min=26.0 \
-    native/app.m native/audio_panel.m native/recording_hotkeys.m native/localization.m native/panel_ui.m native/window_workspace.m native/workspace_check.m native/personal_voice.m native/avatar_plugin.m native/avatar_plugin_check.m native/avatar_panel.m native/avatar_check.m native/settings.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/pocket_provider.m native/plugin_store.m native/official_plugins.m native/english_provider.m native/plan_task.m native/speech_job.m native/stream_converter.m native/sender.c native/microphone.m target/release/libcallbridge_abi_probe.a \
-    -framework Carbon -framework AppKit -framework QuartzCore -framework WebKit -framework UniformTypeIdentifiers -framework AVFoundation -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
+    -F build/sparkle -framework Sparkle -Wl,-rpath,@executable_path/../Frameworks native/app_updater.m \
+    native/app.m native/service_panel.m native/cloud_client.m native/audio_panel.m native/recording_hotkeys.m native/localization.m native/panel_ui.m native/window_workspace.m native/workspace_check.m native/personal_voice.m native/avatar_plugin.m native/avatar_plugin_check.m native/avatar_panel.m native/avatar_check.m native/settings.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/pocket_provider.m native/plugin_store.m native/official_plugins.m native/english_provider.m native/plan_task.m native/speech_job.m native/stream_converter.m native/sender.c native/microphone.m target/release/libcallbridge_abi_probe.a \
+    -framework ImageIO -framework Carbon -framework AppKit -framework QuartzCore -framework WebKit -framework UniformTypeIdentifiers -framework AVFoundation -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
     -Wl,-dead_strip -o "$app/Contents/MacOS/CallBridge"
 # 标准 .app 目录必须含可执行文件和 Info.plist；签名应在这些文件就位之后进行。
 cp native/Info.plist "$app/Contents/Info.plist"
@@ -48,5 +54,6 @@ sh scripts/build-icon.sh
 # 许可证随主包提供；锁定依赖的全部许可由发行脚本另行汇总。
 mkdir -p "$app/Contents/Resources/Licenses"
 cp ../LICENSE ../NOTICE ../LICENSING.md ../THIRD_PARTY_NOTICES.md "$app/Contents/Resources/Licenses/"
+cp build/sparkle/LICENSE "$app/Contents/Resources/Licenses/SPARKLE-LICENSE"
 codesign --force --sign - "$app"
 printf '%s\n' "$app"

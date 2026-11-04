@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><RuntimeIdentifiers>win-x64;osx-arm64</RuntimeIdentifiers><AllowUnsafeBlocks>true</AllowUnsafeBlocks><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><RestorePackagesWithLockFile>true</RestorePackagesWithLockFile></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Core" Version="2.2.1"/>
+    <Compile Include="../CallBridge.Windows/Navigation.cs" Link="Navigation.cs"/>
+    <Compile Include="../CallBridge.Windows/PreparedCountdown.cs" Link="PreparedCountdown.cs"/>
+    <Compile Include="../CallBridge.Windows/Core.cs" Link="Core.cs"/>
+    <Compile Include="../CallBridge.Windows/AudioBuffers.cs" Link="AudioBuffers.cs"/>
+  </ItemGroup>
+</Project>

@@ -224,7 +224,8 @@
         self.breadcrumb.stringValue=CBL(@"画面处理");
         self.catalogView.grid.tiles=@[
             CBModuleTile(CBL(@"人物形象替换"),@"",@"person.crop.rectangle",self,@selector(showPeople:)),
-            CBModuleTile(CBL(@"背景替换"),@"",@"photo.on.rectangle",self,@selector(showBackgrounds:))];
+            CBModuleTile(CBL(@"背景替换"),@"",@"photo.on.rectangle",self,@selector(showBackgrounds:)),
+            CBModuleTile(CBL(@"云端服务"),@"",@"cloud",self,@selector(showCloud:))];
     } else if([self.page isEqual:@"people"]) {
         self.breadcrumb.stringValue=CBL(@"画面处理 / 人物形象替换");
         self.catalogView.grid.tiles=@[
@@ -284,6 +285,7 @@
     CBAvatarController *next=[self controllerForPage:page];self.root.selectedController=next;
     [next renderPage];[CBWorkspace.shared showWindow:next.window from:self.window];[next present];
 }
+- (void)showCloud:(id)sender { (void)sender;if(self.root.openCloud)self.root.openCloud(); }
 - (void)showVirtual:(id)sender { (void)sender;[self navigate:@"virtual"]; }
 - (void)showPeople:(id)sender { (void)sender;[self navigate:@"people"]; }
 - (void)showBackgrounds:(id)sender {

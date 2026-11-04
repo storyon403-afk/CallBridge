@@ -1,42 +1,40 @@
-# 使用人物和背景
+# Using Characters and Backgrounds
 
-打开 CallBridge → **画面处理**，选择人物或背景。第一次使用时，按界面提示下载画面引擎，再点“打开”。安装 App 不会自动开启摄像头。
+Open CallBridge → **Visual Processing**. Select character/background, download the engine if prompted, then open. App installation never automatically opens camera.
 
-## 虚拟人物
+## Virtual character
 
-进入 **人物形象替换 → 虚拟人物形象替换 → 澄 · 通话装**。先用“动作演示”看看画面；需要跟随本人动作时再点“开启摄像头”，并允许系统权限。
+Character replacement → virtual character → Cheng · Call Outfit. Inspect motion demo before explicitly opening camera/granting permission. Keep face/shoulders visible; hands follow only in frame. Plugins supply effects. TTS lip sync is absent.
 
-保持脸部和双肩在镜头里，手部进入镜头后才会跟随手势。人物效果由所选插件提供；目前不提供文字语音自动对口型。
+## Replace backgrounds
 
-## 替换背景
+Select static/flowing-light/window/custom. For background only, retain the person; categories can combine.
 
-进入 **背景替换**，选择静态背景、流光视频、窗景或自己的素材。只想换背景时，人物选“不替换人物”；也可以把人物和背景组合使用。
+- Static: leave scene, capture, confirm.
+- Live: camera surroundings, combinable with virtual character.
+- Image/video: local import; system-decodable MP4/MOV/WebM ≤64 MiB/120 seconds/1920×1080, muted.
 
-- 静态空背景：按界面提示离开镜头，采集并确认后使用。
-- 真实背景：显示现场摄像头画面，可与虚拟人物组合。
-- 图片或视频：导入自己的素材。视频支持系统可解码的 MP4、MOV、WebM，最多 64 MiB、120 秒、1920×1080；播放时不输出素材声音。
+Occlusion/complex scenes can leave edge/fill artifacts. Move sensitive items out of view when privacy matters.
 
-人物遮挡和复杂背景可能留下边缘或补画痕迹。需要保护隐私时，请直接移走镜头里的敏感物品。
+<a id="obs-local-call-testing"></a>
 
-## 送进视频通话
+## Send to video calls
 
-1. 安装 [OBS Studio](https://obsproject.com/download)，按系统提示允许虚拟摄像头。
-2. 退出 OBS 主程序。
-3. 在 CallBridge 打开人物／背景预览，选择 **OBS Virtual Camera**，点“开始视频输出”。
-4. 在通话软件中也选择 **OBS Virtual Camera**。
-5. 结束时停止输出。关闭画面窗口、隐藏 App 或电脑睡眠也会停止采集和输出。
+1. Install [OBS Studio](https://obsproject.com/download), approve virtual camera.
+2. Quit OBS main application.
+3. Open composition, select **OBS Virtual Camera**, explicitly start output.
+4. Select the same camera in call client.
+5. Stop when finished. Visual close/app hide/sleep also stops capture/output.
 
-保持画面窗口可见。自有 CallBridge Camera 扩展需要另外的开发者签名和安装配置，普通使用请按上面的 OBS 路线操作。
+Keep preview visible. CallBridge Camera requires separate developer signing/setup; ordinary use follows OBS.
 
-## 从源码准备画面资源
+## Prepare assets from source
 
-需要 Node.js 22 或更新版本、npm 和 curl。在仓库根目录运行：
+Requires Node.js 22+, npm, curl. From root:
 
 ```sh
 sh rust/scripts/avatar-lab.sh prepare
 sh rust/scripts/build-app.sh
 ```
 
-需要在浏览器单独打开画面时，可运行 `cb avatar`，在 Chrome 打开 `http://127.0.0.1:5778`；用 OBS 输出时改用 `cb avatar-obs`。退出服务按 Ctrl+C。
-
-完整安装步骤见 [GETTING_STARTED.md](../../GETTING_STARTED.md)。模型和依赖来源见 [THIRD_PARTY.txt](THIRD_PARTY.txt)。
+Standalone browser: `cb avatar`, Chrome `http://127.0.0.1:5778`; OBS variant `cb avatar-obs`. Ctrl+C exits server. See [installation](../../GETTING_STARTED.md), [sources](THIRD_PARTY.txt).

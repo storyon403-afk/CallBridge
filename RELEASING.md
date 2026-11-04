@@ -1,54 +1,67 @@
-# 打包和上传
+# Packaging and Uploading
 
-当前版本：**0.0.2 / build 48**，发布标签使用 **v0.0.2**。App 面向 Apple Silicon Mac、macOS 26 及以上。苹果发布签名和公证暂不办理，下载说明中应保留这一点。
+Current: **0.0.3 / build 49**, tag **v0.0.3**, Apple Silicon/macOS 26+ and Windows 11 x64. Apple distribution signing/notarization and Windows publisher signing are deferred; retain those disclosures in downloads.
 
-## 生成安装包
+## Generate packages
 
-先按 [使用说明](GETTING_STARTED.md#build-from-source) 准备构建工具，在仓库根目录运行：
+Prepare tools using [source build](GETTING_STARTED.md#build-from-source), then run from root:
 
 ```sh
+python3 scripts/prepare-sparkle.py
 sh rust/scripts/build-app.sh
 python3 scripts/prepare-release-runtime.py
 python3 scripts/package-release.py
 python3 scripts/check-release.py
 ```
 
-`rust/build/releases/0.0.2/` 会生成 App ZIP、源码压缩包、文件清单和 `SHA256SUMS`。App ZIP 已带 Node 运行环境，不带个人录音、音色、设备设置或语音模型。虚拟音频设备和 OBS 由使用者另行安装。
+`rust/build/releases/0.0.3/` contains macOS and Windows ZIPs, source archive, manifests, signed `appcast.xml`, `SHA256SUMS`. The final `github-release/` subfolder contains only the attachments to upload, without old `ui1`/`ui2` test packages. App ZIP includes Node, excluding personal recordings/voices/settings/speech models. Users install virtual audio/OBS separately. Source only: `python3 scripts/package-release.py --source-only`.
 
-只需要源码包时运行 `python3 scripts/package-release.py --source-only`。
+## Windows release payload
 
-## GitHub 上传范围
+The 0.0.3 Windows release preserves every program/runtime/asset file from the maintainer-accepted `CallBridge-0.0.3-windows-x64-ui2.zip`. Only the archive root name, README, regression checklist and manifest are updated. `MANIFEST.json` records the accepted package SHA-256 and distinguishes maintainer-reported acceptance from automated archive checks. Keep the accepted test archive and pre-release backup locally; do not attach them to the release.
 
-把程序源码、构建脚本、使用说明、许可证、`plugins/official/` 和官网素材一起提交。`SECURITY.md`、`THIRD_PARTY_NOTICES.md` 也是公开文件。不要漏掉 `website/media/`、`assets/demos/`、`assets/diagrams/04.png`，网页需要它们。
+For future versions, build with `sh rust/scripts/build-windows-cross.sh` or the Windows build procedure, perform Windows acceptance on the resulting package, and then finalize its filename and documentation. Do not silently rebuild accepted executables. `python3 scripts/check-windows.py` verifies the final package; `python3 scripts/package-release.py` includes it and `WINDOWS-SHA256SUMS` in the combined checksum file.
 
-不要提交 `build/`、`target/`、`node_modules/`、`__pycache__/`、个人录音、个人音色或设置。打包脚本会在发布目录生成 `UPLOAD_FILES.txt`，列出源码包包含的文件，方便对照。
+## GitHub upload scope
 
-## 发布 App
+Include source, build scripts, usage, licenses, `plugins/official/`, website assets, `SECURITY.md`, `THIRD_PARTY_NOTICES.md`. Keep `website/media/`, `assets/demos/`, `assets/diagrams/04.png` required by the site. Exclude `build/`, `target/`, `node_modules/`, `__pycache__/`, personal recordings/voices/settings. Generated `UPLOAD_FILES.txt` lists source contents.
 
-1. 提交并推送准备好的源码。
-2. 在 GitHub Releases 新建 **v0.0.2**，标题写 **CallBridge 0.0.2**。
-3. 使用 [更新说明](release/NOTES.md) 作为正文。
-4. 上传发布目录中的 App ZIP、源码压缩包、`APP_MANIFEST.json`、`SOURCE_MANIFEST.json`、`SHA256SUMS` 和 `GETTING_STARTED.md`。
-5. 保留“尚未经过苹果签名和公证”的说明，用户第一次打开时可能遇到系统提示。
+## Publish the App
 
-这些脚本只生成文件，不会自动提交、推送或发布。
+1. Commit/push prepared source.
+2. Create a **draft** GitHub Release for **v0.0.3**, title **CallBridge 0.0.3**, targeting the pushed commit.
+3. Use [release notes](release/NOTES.md), also copied as `RELEASE_NOTES.md` in the final attachment folder.
+4. Attach **all 12 files** from `rust/build/releases/0.0.3/github-release/`: both platform ZIPs, source archive, `APP_MANIFEST.json`, `SOURCE_MANIFEST.json`, `UPLOAD_FILES.txt`, `SHA256SUMS`, `WINDOWS-SHA256SUMS`, `appcast.xml`, `GETTING_STARTED.md`, `SECURITY.md` and `RELEASE_NOTES.md`.
+5. Review the attachments, retain signing/notarization disclosures, then publish the draft as the latest stable release. A Git push alone does not upload binaries or publish a GitHub Release.
 
-## 发布官方插件
+Scripts generate files only, without automatic commit/push/publication. These steps require explicit authorization.
+
+## Publish official plugins
 
 ```sh
 python3 scripts/package-official-plugins.py
 ```
 
-把 `build/official-plugins/plugins-v1/` 里的三个 `.cbplugin`、`SHA256SUMS` 和 `LICENSE` 上传到单独的 **plugins-v1** Release。不要把插件压缩包加入源码仓库。
-
-附件可以下载以后，再运行：
+Upload three `.cbplugin`, `SHA256SUMS`, `LICENSE` from `build/official-plugins/plugins-v1/` to separate **plugins-v1** Release. Do not track archives. Once downloadable:
 
 ```sh
 python3 scripts/package-official-plugins.py --verify-published
 ```
 
-它会核对下载内容，并更新 `plugins/official/catalog.json` 的下载状态。提交并推送更新后的清单。用户在 App 点“刷新列表”就能看到可下载的插件。详细说明见[官方插件](plugins/official/README.md)。
+This checks bytes and updates `plugins/official/catalog.json`. Review/commit/push the catalog; App refresh then exposes downloads. See [official plugins](plugins/official/README.md).
 
-## 更新官网
+## Update website
 
-Pages 设置选择 **GitHub Actions**。提交官网源码及素材后，推送到 `main` 会按 `.github/workflows/pages.yml` 更新网站。想先查看页面，按 [website/README.md](website/README.md) 操作。
+Set Pages to **GitHub Actions**. Authorized pushes of source/assets to `main` deploy through `.github/workflows/pages.yml`. Preview via [website guide](website/README.md).
+
+## Automatic update release contract
+
+Sparkle is pinned by `release/sparkle.json`. Prepare it explicitly before the offline build. Development bundles set `CBEnableUpdates=false`; packaging enables it only in the staged release bundle. Diagnostic modes never initialize the updater. Release defaults enable checks every 86,400 seconds, automatic downloads, and installation on quit. No LaunchAgent is installed. Users can change the automatic-update preference from either menu.
+
+The feed URL is `https://github.com/storyon403-afk/CallBridge/releases/latest/download/appcast.xml`. Every stable release must attach the generated `appcast.xml` **and** its corresponding App ZIP before it is designated GitHub's latest release. Use a draft release to upload all attachments first. Prereleases and plugin-only releases must not replace the latest stable App release. The feed references the immutable version tag, not the latest ZIP URL. Retain past App attachments. Future releases must increase the numeric `CFBundleVersion` as well as update the public version. Never reuse a published build number or replace a published archive.
+
+Packaging uses Sparkle's `generate_appcast` and the macOS Keychain account `dev.callbridge.demo`. It checks that the account's public key matches `SUPublicEDKey` before signing. The private key is stored only in the maintainer's login Keychain; it is not exported into the repository, build output, or App. Back up that key securely before publishing the first updater-enabled release, and restore the same key when moving release machines. A missing/mismatched key stops packaging; do not generate a replacement key for an existing update channel. Source-only packaging needs no signing key.
+
+Both feed and archive signatures are required; feed-validation failures never expire into unsigned fallback. `scripts/check-release.py` verifies those signatures, exact version/build/OS/download URL/length, packaged defaults, framework links, and payload hashes. The archive must not be changed after signing. SHA256SUMS includes the final signed feed. Publish only after these checks pass. The updater does not install drivers, models, or plugins. Gatekeeper, writable-location requirements, and Apple signing/notarization remain separate constraints. A system authorization prompt can prevent fully unattended installation in protected locations.
+
+Versions through 0.0.2 have no updater and require one manual installation of 0.0.3 or later. Publishing files does not retrofit older clients. Local preparation does not publish a GitHub release.
