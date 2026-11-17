@@ -12,7 +12,9 @@ internal static class UI
     internal static Button Button(string text, Action action, bool enabled = true, string? help = null)
     {
         var b = new Button { Content = text, IsEnabled = enabled, ToolTip = help, Margin = new Thickness(0, 0, 8, 0) };
-        AutomationProperties.SetName(b, help ?? text); b.Click += (_, _) => action(); return b;
+        AutomationProperties.SetName(b, string.IsNullOrWhiteSpace(help) ? text : help);
+        if (!string.IsNullOrWhiteSpace(help)) AutomationProperties.SetHelpText(b, help);
+        b.Click += (_, _) => action(); return b;
     }
     internal static Button Link(string title, string detail, Action action, bool enabled = true)
     {
@@ -21,6 +23,8 @@ internal static class UI
         var value = Label(detail + "  ›", true); value.VerticalAlignment = VerticalAlignment.Center; value.TextWrapping = TextWrapping.NoWrap; value.TextTrimming = TextTrimming.CharacterEllipsis; value.HorizontalAlignment = HorizontalAlignment.Right; Grid.SetColumn(value, 1);
         grid.Children.Add(label); grid.Children.Add(value);
         var b = Button(title, action, enabled, detail); b.Content = grid; b.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        // 读屏先说明动作，状态放在帮助文字；空状态不能覆盖按钮名称。
+        AutomationProperties.SetName(b, title); AutomationProperties.SetHelpText(b, detail);
         b.Background = Brushes.Transparent; b.Padding = new Thickness(4, 6, 4, 6); b.Margin = new Thickness(0); b.MinHeight = 32; return b;
     }
     internal static StackPanel Column(params UIElement[] children)
@@ -42,11 +46,14 @@ internal static class UI
     {
         var combo = new ComboBox(); AutomationProperties.SetName(combo, name); return combo;
     }
-    internal static Button Tile(string title, string icon, Action action, bool enabled = true)
+    internal static Button Tile(string title, string icon, Action action, bool enabled = true, string? detail = null)
     {
         var stack = new StackPanel(); stack.Children.Add(new TextBlock { Text = icon, FontFamily = new FontFamily("Segoe Fluent Icons"), FontSize = 22, Margin = new Thickness(0, 0, 0, 8) });
         stack.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        var b = Button(title, action, enabled); b.Style = (Style)Application.Current.FindResource("Tile"); b.Content = stack; b.Height = 88; b.Margin = new Thickness(0); return b;
+        if (detail != null) stack.Children.Add(new TextBlock { Text = detail, FontSize = 11, TextWrapping = TextWrapping.Wrap });
+        var b = Button(title, action, enabled); b.Style = (Style)Application.Current.FindResource("Tile"); b.Content = stack; b.Height = 88; b.MinHeight = detail == null ? 72 : 88; b.Margin = new Thickness(0);
+        if (detail != null) { b.ToolTip = detail; AutomationProperties.SetHelpText(b, detail); }
+        return b;
     }
     internal static Panel Tiles(params Button[] buttons)
     {
@@ -94,13 +101,17 @@ public class ModuleWindow : Window
         StatusLabel.MaxHeight = 30; StatusLabel.Margin = new Thickness(0, 4, 0, 4);
         root.Children.Add(new ScrollViewer { Content = Page, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); Content = root;
         app.Workspace.Register(route, this);
+        Activated += (_, _) => UpdateBackButton();
         Closing += (_, e) => { if (app.Exiting) return; e.Cancel = true; app.Workspace.Dismiss(this); };
     }
     internal void ShowPage(string key, string title, UIElement body, params Button[] actions)
     {
         CurrentPage = key; Heading.Text = title; Page.Content = body;
-        _navigation.Visibility = key == "home" ? Visibility.Collapsed : Visibility.Visible;
+        // 模块首页也提供返回路径，避免用户只能去屏幕顶部寻找父面板标签。
+        _navigation.Visibility = Visibility.Visible; UpdateBackButton();
         Actions.Children.Clear(); foreach (var action in actions) { action.Margin = new Thickness(8, 4, 0, 0); Actions.Children.Add(action); }
     }
+    private void UpdateBackButton() => BackButton.IsEnabled = CurrentPage != "home" ||
+        (Host.Workspace.State.Entries.TryGetValue(Route, out var entry) && entry.Parent != null);
     internal void Message(string text) { StatusLabel.Text = text; StatusLabel.ToolTip = text; }
 }

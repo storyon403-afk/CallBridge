@@ -48,10 +48,16 @@ internal sealed class VisualCatalogWindow : ModuleWindow
                 column.Children.Add(UI.Hero(title, ResourcesReady() ? "资源已就绪 · 尚未打开" : "运行资源缺失"));
                 if (background && _background is "custom" or "image") column.Children.Add(UI.Button(Host.Visuals.BackgroundPath == null ? "导入背景素材…" : "已导入 · 重新选择…", ImportBackground));
                 column.Children.Add(UI.Label(background ? "同时替换人物？" : "同时替换背景？", true));
-                column.Children.Add(UI.Row(UI.Button(background ? "选择人物…" : "选择背景…", () => { if (SelectDetail()) Navigate(background ? "people" : "backgrounds", true); }), UI.Button("不需要", () => { Host.Visuals.DeclinePartner(background); Message(background ? "人物不替换" : "背景不替换"); })));
+                column.Children.Add(UI.Row(UI.Button(background ? "选择人物…" : "选择背景…", () => { if (SelectDetail()) Navigate(background ? "virtual" : "backgrounds", true); }), UI.Button("不需要", () => { Host.Visuals.DeclinePartner(background); Message(background ? "人物不替换" : "背景不替换"); })));
                 body = column; actions.Add(UI.Button("打开", async () => await Open(), ResourcesReady())); break;
             default:
-                page = "home"; body = UI.Tiles(UI.Tile("人物形象替换", "\uE77B", () => Navigate("people")), UI.Tile("背景替换", "\uE91B", () => Navigate("backgrounds")), UI.Tile("云端服务", "\uE753", () => Host.OpenServices(this))); break;
+                // 直接复用人物详情动作，跳过只有一个可用类别的两层目录；仍由“打开”启动运行画面。
+                page = "home"; body = UI.Column(
+                    UI.Card(UI.Label("人物", true),
+                        UI.Link("澄 · 通话装", "内置人物", () => { Host.Visuals.SelectPerson(null); Detail("person", "home"); }),
+                        UI.Link("导入 VRM", "本地人物文件", ImportCharacter)),
+                    UI.Card(UI.Link("背景", "选择或导入", () => Navigate("backgrounds")),
+                        UI.Link("云服务说明", "仅查看指南", () => Host.OpenServices(this)))); break;
         }
         Title = page switch { "home" => "画面处理", "people" => "人物形象替换", "virtual" => "虚拟人物", "real" => "真实人物", "backgrounds" => "背景替换", "dynamic" => "动态背景", _ => _detail == "person" ? "人物详情" : BackgroundName(_background) };
         ShowPage(page, page switch { "people" => "人物形象替换", "virtual" => "虚拟人物形象替换", "real" => "真实人物形象替换", "backgrounds" => "背景替换", "dynamic" => "动态背景", _ => "" }, body, actions.ToArray());

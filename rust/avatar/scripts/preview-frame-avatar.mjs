@@ -1,0 +1,20 @@
+// 复用现有预览页面；仅开发端口暴露新图集，输出设备固定不可用，禁止在预览时探测驱动。
+import {readFile,writeFile,mkdir,cp} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+const file=fileURLToPath(new URL('../../build/frame-avatar/umbrella-gentleman/plugin/character.cbframe',import.meta.url));
+const bytes=await readFile(file);
+process.env.CB_CHARACTER_FILE=file;process.env.CB_CHARACTER_BYTES=String(bytes.length);process.env.CB_CHARACTER_SHA=createHash('sha256').update(bytes).digest('hex');
+const base=new URL('../../build/avatar/',import.meta.url),site=new URL('../../build/frame-avatar/site/',import.meta.url);
+await mkdir(site,{recursive:true});
+for(const name of ['app.js','style.css','THIRD_PARTY.txt','vendor','fixtures','licenses'])await cp(new URL(name,base),new URL(name,site),{recursive:true});
+process.env.CB_AVATAR_ASSETS=fileURLToPath(site);
+const {startServer}=await import('./server.mjs');
+const index=new URL('index.html',base),preview=new URL('frame-preview.html',site);
+const html=(await readFile(index,'utf8')).replace('src="app.js"','src="frame-preview.js"');
+await writeFile(new URL('frame-preview.js',site),'window.callbridgeComposition={person:"avatar",background:"parallax",character:true};await import("./app.js");');
+await writeFile(preview,html);
+const camera={status:async()=>({available:false,active:false,message:'帧角色本地预览 · 未接入输出设备'}),stop:async()=>true,start:async()=>{throw Error('本预览不提供视频发送');}};
+const server=await startServer(0,{camera});
+console.log(`http://127.0.0.1:${server.address().port}/frame-preview.html`);
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>server.close(()=>process.exit(0)));

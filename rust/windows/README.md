@@ -1,10 +1,10 @@
 # Windows 11 x64
 
-Windows 桌面迁移使用 WPF + WebView2，保留 Rust 音频/会话核心和现有 Cheng · Call Outfit 画面模块。0.0.3 提供 Windows 11 x64 便携发行包和构建源码；macOS 安装包不能用于 Windows。
+Windows 桌面迁移使用 WPF + WebView2，保留 Rust 音频/会话核心和现有 Cheng · Call Outfit 画面模块。0.0.4 提供 Windows 11 x64 便携测试包和构建源码；macOS 安装包不能用于 Windows。
 
 ## 便携发行包
 
-直接运行请看 [Windows 便携包说明](PORTABLE.md)。`CallBridge-0.0.3-windows-x64.zip` 已包含 Windows 程序、Rust DLL、.NET、Node 与视频适配运行时，完整解压后运行 `Test-Windows.cmd`，再打开 `CallBridge.exe`。发行包基于已由维护者确认通过 Windows 测试的 ui2 程序整理。
+直接运行请看 [Windows 便携包说明](PORTABLE.md)。`CallBridge-0.0.4-windows-x64.zip` 已包含 Windows 程序、Rust DLL、.NET、Node 与视频适配运行时，完整解压后运行 `Test-Windows.cmd`，再打开 `CallBridge.exe`。本版从当前源码重新构建；0.0.3 ui2 的历史测试确认不适用于本版，需重新完成 Windows 真机与设备验收。
 
 维护者可用 `sh rust/scripts/build-windows-cross.sh` 复用 `rust/build/toolchains/` 中的 .NET 10.0.403、Rust 1.97.1（含 Windows gnullvm 目标）和 LLVM-MinGW 20261020，在 Apple Silicon Mac 上重新组装。运行时归档由 `release/windows-runtime.json` 固定；传入 `--restore` 才会下载缺失归档。
 
@@ -12,12 +12,12 @@ Windows 桌面迁移使用 WPF + WebView2，保留 Rust 音频/会话核心和�
 
 | 功能 | Windows 源码状态 |
 | --- | --- |
-| 主面板、文字、音频模拟、混音、画面处理、声音转录 | 复用当前 Mac 入口/概要/详情层级；标准面板 400×360，文字 560×112/360 |
+| 主面板、文字、音频模拟、混音、画面处理 | 标准面板 400×360；文字默认宽 560，紧凑态按两行内容确定高度，展开为 560×420；文字窗直接显示发送设备 |
 | 收起标签、返回父页、独立置顶、托盘 | 已接入；视觉目录逐层单实例，运行画面保持展开；多屏自动避让/过渡动画待适配 |
 | 系统 TTS、准备语音、5 秒倒计时、独立设备试听、发送、停止、音量 | 已接入 System.Speech → Rust → 指定 WASAPI 端点 |
 | 文件背景混音 | 可导入最多 30 秒素材，随文字发送混入；可循环；配置下次发送生效 |
 | Cheng、导入 VRM、图片/视频背景、相机驱动与动作演示 | 复用现有本地画面模块，由 WebView2 承载 |
-| 最终合成画面 → OBS Virtual Camera | 独立 Python/pyvirtualcam 进程；固定 1280×720 RGBA；30 fps 是目标，未实测 |
+| 最终合成画面 → OBS Virtual Camera | 独立 Python/pyvirtualcam 进程；1280×720 RGBA 管道帧在适配层转为 OBS 支持的 RGB；30 fps 是目标，未完成性能验收 |
 | 设备丢失、取消、隐藏/最小化/锁屏/睡眠、进程退出 | 失败不换设备；会话不自动恢复；子进程使用 Windows Job 绑定宿主 |
 | Pocket/个人音色、插件管理器、独立常驻环境音/背景音、多语言、全局快捷键、云服务远端操作、自动更新 | 尚未迁移；不能视为与 macOS 完整功能对齐 |
 
@@ -65,7 +65,7 @@ Windows 版已实现音视频桌面主流程，**尚未与 macOS 完整功能对
 
 个人设置和 WebView2 数据位于 `%LOCALAPPDATA%\CallBridge\`。输出状态、发送授权、准备 PCM 不持久化。相机不接触音频输入。
 
-界面对照清单见 [Windows UI 验收](UI-ACCEPTANCE.md)。声音转录与云服务提供导航和能力状态；Windows 尚无变声/识别引擎或云端任务适配，相关动作禁用。
+界面对照清单见 [Windows UI 验收](UI-ACCEPTANCE.md)。当前源码将声音转录标记为 Windows 暂不支持；云服务仅提供离线说明。音频插件与个人音色入口禁用，环境音采集显示平台限制。画面处理可直接进入“澄 · 通话装”详情或导入 VRM；浏览与选择仍不会启动采集或发送。这些修复包含在 0.0.4 测试包中；请按清单在 Windows 上回归。
 
 ## 构建检查与设备要求
 

@@ -1,6 +1,6 @@
 # Packaging and Uploading
 
-Current: **0.0.3 / build 49**, tag **v0.0.3**, Apple Silicon/macOS 26+ and Windows 11 x64. Apple distribution signing/notarization and Windows publisher signing are deferred; retain those disclosures in downloads.
+Current test release: **0.0.4 / build 50**, tag **v0.0.4**, Apple Silicon/macOS 26+ and Windows 11 x64. Apple distribution signing/notarization and Windows publisher signing are deferred; retain those disclosures in downloads.
 
 ## Generate packages
 
@@ -14,25 +14,25 @@ python3 scripts/package-release.py
 python3 scripts/check-release.py
 ```
 
-`rust/build/releases/0.0.3/` contains macOS and Windows ZIPs, source archive, manifests, signed `appcast.xml`, `SHA256SUMS`. The final `github-release/` subfolder contains only the attachments to upload, without old `ui1`/`ui2` test packages. App ZIP includes Node, excluding personal recordings/voices/settings/speech models. Users install virtual audio/OBS separately. Source only: `python3 scripts/package-release.py --source-only`.
+`rust/build/releases/0.0.4/` contains macOS and Windows ZIPs, source archive, manifests, signed `appcast.xml`, `SHA256SUMS`. Stage only the 12 final attachments listed below into `github-release/`; never include old `ui1`/`ui2` test packages. App ZIP includes Node, excluding personal recordings/voices/settings/speech models. Users install virtual audio/OBS separately. Source only: `python3 scripts/package-release.py --source-only`.
 
 ## Windows release payload
 
-The 0.0.3 Windows release preserves every program/runtime/asset file from the maintainer-accepted `CallBridge-0.0.3-windows-x64-ui2.zip`. Only the archive root name, README, regression checklist and manifest are updated. `MANIFEST.json` records the accepted package SHA-256 and distinguishes maintainer-reported acceptance from automated archive checks. Keep the accepted test archive and pre-release backup locally; do not attach them to the release.
+The 0.0.4 Windows test package is rebuilt from current source using `sh rust/scripts/build-windows-cross.sh`. It does not reuse the accepted 0.0.3 ui2 executables. The manifest records `windows_execution_verified=false`; perform the packaged Windows acceptance checklist before considering a stable release. Keep historical accepted packages unchanged.
 
-For future versions, build with `sh rust/scripts/build-windows-cross.sh` or the Windows build procedure, perform Windows acceptance on the resulting package, and then finalize its filename and documentation. Do not silently rebuild accepted executables. `python3 scripts/check-windows.py` verifies the final package; `python3 scripts/package-release.py` includes it and `WINDOWS-SHA256SUMS` in the combined checksum file.
+`python3 scripts/check-windows.py` verifies archive contents and dependencies; `python3 scripts/package-release.py` includes the Windows ZIP and `WINDOWS-SHA256SUMS` in the combined checksum file. These checks do not execute Windows UI or devices.
 
 ## GitHub upload scope
 
-Include source, build scripts, usage, licenses, `plugins/official/`, website assets, `SECURITY.md`, `THIRD_PARTY_NOTICES.md`. Keep `website/media/`, `assets/demos/`, `assets/diagrams/04.png` required by the site. Exclude `build/`, `target/`, `node_modules/`, `__pycache__/`, personal recordings/voices/settings. Generated `UPLOAD_FILES.txt` lists source contents.
+Include source, build scripts, usage, licenses, `plugins/official/`, website assets, `SECURITY.md`, `THIRD_PARTY_NOTICES.md`. Keep `website/media/`, `assets/demos/`, `assets/diagrams/04.png` required by the site. Exclude `build/`, `target/`, `node_modules/`, `__pycache__/`, `plugins/experimental/`, personal recordings/voices/settings. Experimental artwork has no confirmed redistribution clearance and remains local; do not commit or attach it. Generated `UPLOAD_FILES.txt` lists source contents.
 
 ## Publish the App
 
 1. Commit/push prepared source.
-2. Create a **draft** GitHub Release for **v0.0.3**, title **CallBridge 0.0.3**, targeting the pushed commit.
+2. Create a **draft pre-release** GitHub Release for **v0.0.4**, title **CallBridge 0.0.4 — Test release**, targeting the pushed commit.
 3. Use [release notes](release/NOTES.md), also copied as `RELEASE_NOTES.md` in the final attachment folder.
-4. Attach **all 12 files** from `rust/build/releases/0.0.3/github-release/`: both platform ZIPs, source archive, `APP_MANIFEST.json`, `SOURCE_MANIFEST.json`, `UPLOAD_FILES.txt`, `SHA256SUMS`, `WINDOWS-SHA256SUMS`, `appcast.xml`, `GETTING_STARTED.md`, `SECURITY.md` and `RELEASE_NOTES.md`.
-5. Review the attachments, retain signing/notarization disclosures, then publish the draft as the latest stable release. A Git push alone does not upload binaries or publish a GitHub Release.
+4. Attach **all 12 files** from `rust/build/releases/0.0.4/github-release/`: both platform ZIPs, source archive, `APP_MANIFEST.json`, `SOURCE_MANIFEST.json`, `UPLOAD_FILES.txt`, `SHA256SUMS`, `WINDOWS-SHA256SUMS`, `appcast.xml`, `GETTING_STARTED.md`, `SECURITY.md` and `RELEASE_NOTES.md`.
+5. Review the attachments, retain signing/notarization disclosures, then publish the draft as a **pre-release**, with `latest=false`. Keep v0.0.3 as the stable latest release. A Git push alone does not upload binaries or publish a GitHub Release.
 
 Scripts generate files only, without automatic commit/push/publication. These steps require explicit authorization.
 
@@ -52,7 +52,7 @@ This checks bytes and updates `plugins/official/catalog.json`. Review/commit/pus
 
 ## Update website
 
-Set Pages to **GitHub Actions**. Authorized pushes of source/assets to `main` deploy through `.github/workflows/pages.yml`. Preview via [website guide](website/README.md).
+The existing `.github/workflows/pages.yml` deploys only matching website paths on `main`. This test release does not modify website assets or workflow configuration. Preview instructions: [website guide](website/README.md).
 
 ## Automatic update release contract
 

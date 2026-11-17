@@ -46,9 +46,9 @@ public partial class AudioWindow : ModuleWindow
             default:
                 page = "home";
                 body = UI.Column(UI.Card(UI.Row(new TextBlock { Text = Host.Preferences.Voice ?? "系统默认音色", FontWeight = FontWeights.SemiBold, MaxWidth = 210, TextTrimming = TextTrimming.CharacterEllipsis }, UI.Button("试听", async () => await Preview())),
-                    UI.Label("Windows 系统语音", true), UI.Link("选择音色与效果", "", () => Navigate("voice"))),
-                    UI.Card(UI.Link("输出设备", (_outputs.SelectedItem as OutputDevice)?.Name ?? "未选择", () => Navigate("output")), UI.Link("音频插件", "", () => Navigate("plugins"))),
-                    UI.Link("个人音色", "", () => Navigate("personal"))); break;
+                    UI.Link("选择音色与效果", "", () => Navigate("voice"))),
+                    UI.Card(UI.Link("输出设备", (_outputs.SelectedItem as OutputDevice)?.Name ?? "未选择", () => Navigate("output")), UI.Link("音频插件", "Windows 暂不支持", () => Navigate("plugins"), false)),
+                    UI.Link("个人音色", "Windows 暂不支持", () => Navigate("personal"), false)); break;
         }
         ShowPage(page, page switch { "voice" => "声音", "output" => "输出设备", "plugins" => "音频插件", "personal" => "个人音色", "catalog" => "官方插件", "import" => "本地导入", _ => "" }, body,
             StopButton(), UI.Button("文字输入", () => Host.OpenText(this)));
@@ -91,7 +91,7 @@ public partial class AudioWindow : ModuleWindow
             if (ReferenceEquals(sender, _outputs)) Host.Preferences.OutputId = (_outputs.SelectedItem as OutputDevice)?.Id;
             if (ReferenceEquals(sender, _previews)) Host.Preferences.PreviewId = (_previews.SelectedItem as OutputDevice)?.Id;
             if (ReferenceEquals(sender, _voices)) Host.Preferences.Voice = _voices.SelectedItem as string;
-            Host.Preferences.Save(); Message("已选择 · 未发送");
+            Host.Preferences.Save(); Host.TextPanel?.RefreshRoute(); Message("已选择 · 未发送");
         }
         catch (Exception error) { Message(error.Message); }
     }

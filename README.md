@@ -5,9 +5,11 @@
 
 CallBridge brings typed speech, voices, background audio and virtual characters into your calls through virtual audio and video devices.
 
-**0.0.3 · macOS 26+ (Apple Silicon) · Windows 11 x64**
+**0.0.4 Pre-release · macOS 26+ (Apple Silicon) · Windows 11 x64**
 
 Windows has a portable package for system speech, file mixing and virtual-character video. Pocket/personal voices, plugin installation, persistent ambience, cloud operations and automatic updates remain macOS-only. See [Windows installation and scope](rust/windows/README.md).
+
+The 0.0.4 test release improves Windows text layout, output-device guidance and OBS pixel conversion, and adds experimental CBFA v1 frame-avatar support on macOS. Download it manually from [v0.0.4](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.4); 0.0.3 remains the stable automatic-update release. Windows device and real-call acceptance for this build is pending.
 
 ## Features
 

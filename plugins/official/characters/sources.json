@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "spider-man": {
+    "name": "蜘蛛侠 · Homecoming",
+    "author": "Mr. P (mrpgremlin); VRM adaptation by CallBridge",
+    "license": "CC-BY-4.0; character rights reserved by respective owners",
+    "source": "https://sketchfab.com/3d-models/spider-man-2017-homecoming-tech-suit-6f58018044e147c08b8c2d7f552f46d1",
+    "download": "https://raw.githubusercontent.com/MartinDelophy/everyone-is-spiderman/d4de847166a5cea04b0bfeed09dba056e816673f/public/models/spider-man-homecoming-tech-suit.glb",
+    "files": {
+      "spider-man-homecoming-tech-suit.glb": "0094305db7124423801a4c095bc3a02752d8dcd0b54c015e10d692902bc44071"
+    },
+    "publication_review": "Embedded asset attribution is CC BY 4.0. Character endorsement and rights clearance have not been established. No publication authorized."
+  },
+  "gg-bond": {
+    "name": "猪猪侠 · 参考重建版（本地原型）",
+    "author": "CallBridge reference sculpture; character rights belong to their respective owners",
+    "license": "LicenseRef-Character-Rights-Reserved; local reference reconstruction; redistribution not cleared",
+    "source": "https://image14.m1905.cn/uploadfile/2014/0515/20140515110708414563.jpg",
+    "files": {},
+    "geometry": "scripts/gg_bond_geometry.py",
+    "publication_review": "New geometry authored locally from the user-approved visual reference. No amaraha mesh or texture reused. Character rights and publication clearance are not established. No publication authorized."
+  }
+}

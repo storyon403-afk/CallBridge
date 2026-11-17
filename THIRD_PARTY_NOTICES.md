@@ -12,6 +12,8 @@ CallBridge's noncommercial license applies to its original code only. It does no
 | Node.js | Official locked ARM64 archive; Node and bundled component license text | App bundle includes the runtime and `NODE-LICENSE` |
 | MediaPipe Holistic | Apache-2.0; optional engine downloads fixed upstream resources | Not bundled model weights; notices accompany the host |
 | Original avatar | VRM1_Constraint_Twist_Sample, (c) 2022 pixiv Inc.; VRM Public License 1.0 and embedded settings | Optional App resource; original model also used by the website demo with its own notices |
+| Spider-Man / Homecoming Tech Suit | Mr. P (mrpgremlin); embedded source declares CC BY 4.0; character rights remain with their respective owners | Unpublished optional local character candidate; [source, conversion and limitations](plugins/official/characters/README.md); not bundled in the App |
+| GG Bond character design | Locally rebuilt geometry based on the approved 1905 reference; character rights remain with their respective owners | Local reference reconstruction with body/arm rig; no amaraha mesh reused; [source and limitations](plugins/official/characters/README.md); excluded from publication |
 | Pocket Chinese / English models, ONNX Runtime, WeText | Fixed sources and individual license files in `rust/pocket/assets/*package.json` and `rust/pocket/THIRD_PARTY.md` | Optional downloads; not bundled models. Upstream access terms still apply |
 | DeepFilterNet3 | Official program under its own MIT/Apache notices | Optional local plugin; not included in the base release |
 | OBS Studio / BlackHole | Separate GPL projects, independently installed | Neither application/driver is included in the CallBridge App archive |

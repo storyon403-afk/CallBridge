@@ -603,7 +603,24 @@ fn payload(root: &Path, m: &Manifest) -> Result<()> {
             crate::voice::load(&p)?;
         }
         "voice-en" => safe_tensor(&p)?,
-        "avatar" => vrm(&p)?,
+        "avatar" => {
+            if p.extension().and_then(|s| s.to_str()) == Some("cbframe") {
+                crate::frame_avatar::validate(&read_file(&p, 16 * 1024 * 1024)?)?;
+                let helper = std::env::current_exe()?
+                    .parent()
+                    .unwrap()
+                    .join("callbridge-media-check");
+                ensure!(
+                    std::process::Command::new(helper)
+                        .args(["avatar-frame", p.to_str().unwrap()])
+                        .status()?
+                        .success(),
+                    "帧图集未通过宿主解码检查"
+                );
+            } else {
+                vrm(&p)?;
+            }
+        }
         "background-image" => {
             ensure!(
                 fs::metadata(&p)?.len() <= 16 * 1024 * 1024,

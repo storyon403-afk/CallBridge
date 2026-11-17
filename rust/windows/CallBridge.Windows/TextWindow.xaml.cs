@@ -12,7 +12,9 @@ public partial class TextWindow : Window
 {
     private readonly App _app;
     private bool _closing;
-    private Size _compact = new(560, 112), _expanded = new(560, 360);
+    private double _compactWidth = 560;
+    private Size _expanded = new(560, 420);
+    private bool _outputAvailable, _previewAvailable, _sameDevice;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private double _deadline;
     internal bool Expanded => Details.Visibility == Visibility.Visible;
@@ -21,6 +23,7 @@ public partial class TextWindow : Window
         _app = app; InitializeComponent(); Gain.Value = app.Preferences.Gain;
         app.Workspace.Register("text", this);
         _app.Audio.Status += UpdateStatus; Closing += CloseRequested;
+        Activated += (_, _) => RefreshRoute();
         _timer.Tick += Tick; _timer.Start();
         Closed += (_, _) => { _timer.Stop(); _app.Audio.Status -= UpdateStatus; };
         PreviewKeyDown += (_, e) =>
@@ -32,6 +35,31 @@ public partial class TextWindow : Window
         };
     }
     private void UpdateStatus(string value) { Status.Text = value; Status.ToolTip = value; }
+    internal void RefreshRoute()
+    {
+        // 只在进入窗口或设备选择变化时枚举，不能放进每 100 ms 的倒计时刷新。
+        try
+        {
+            var devices = AudioController.Devices();
+            var output = devices.FirstOrDefault(d => d.Id == _app.Preferences.OutputId);
+            var preview = devices.FirstOrDefault(d => d.Id == _app.Preferences.PreviewId);
+            _outputAvailable = output != null; _previewAvailable = preview != null;
+            _sameDevice = output != null && output.Id == preview?.Id;
+            TargetLabel.Text = "发送到：" + (output?.Name ?? (_app.Preferences.OutputId == null ? "未选择设备" : "设备不可用"));
+            TargetLabel.ToolTip = TargetLabel.Text + "\n本机试听：" + (preview?.Name ?? "未选择可用设备");
+            RouteWarning.Text = !_outputAvailable ? "请先选择可用的通话输出设备。" : _sameDevice ? "试听与发送使用同一设备，请在设备设置中分开选择。" : !_previewAvailable ? "尚未选择本机试听设备。" : "";
+            RouteWarning.Visibility = RouteWarning.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        }
+        catch (Exception error)
+        {
+            _outputAvailable = _previewAvailable = false; _sameDevice = false;
+            TargetLabel.Text = "发送到：设备读取失败"; TargetLabel.ToolTip = error.Message;
+            RouteWarning.Text = "无法读取音频设备，请打开设备设置重试。"; RouteWarning.Visibility = Visibility.Visible;
+        }
+        if (!_outputAvailable && Permission.IsChecked == true) RevokePermission();
+        Permission.IsEnabled = _outputAvailable;
+        RefreshControls();
+    }
     internal void RevokePermission() { _deadline = 0; Permission.IsChecked = false; }
     private async void PermissionRevoked(object sender, RoutedEventArgs e)
     {
@@ -97,22 +125,35 @@ public partial class TextWindow : Window
     {
         if (!IsInitialized || CountdownButton == null) return;
         var idle = !_app.Audio.Busy; var text = !string.IsNullOrWhiteSpace(Editor.Text);
-        SendButton.IsEnabled = idle && text; PreviewButton.IsEnabled = idle && text;
-        PrepareButton.IsEnabled = idle && text; CountdownButton.IsEnabled = idle && (_app.Audio.Prepared || _app.Audio.CountingDown) && Permission.IsChecked == true && _app.Preferences.OutputId != null;
+        SendButton.IsEnabled = idle && text && _outputAvailable; PreviewButton.IsEnabled = idle && text && _previewAvailable && !_sameDevice;
+        SendButton.ToolTip = _outputAvailable ? "发送 · Ctrl+Enter" : "请先选择可用的输出设备";
+        PreviewButton.ToolTip = _sameDevice ? "试听设备须与通话输出设备不同" : !_previewAvailable ? "请先选择本机试听设备" : "只在所选本机设备试听";
+        PrepareButton.IsEnabled = idle && text; CountdownButton.IsEnabled = idle && (_app.Audio.Prepared || _app.Audio.CountingDown) && Permission.IsChecked == true && _outputAvailable;
         CountdownButton.Content = _app.Audio.CountingDown ? "取消倒计时" : "5 秒后播放";
         Pin.IsChecked = _app.Workspace.PinPanels;
     }
     private async void Stop(object sender, RoutedEventArgs e) { _deadline = 0; await Run(() => _app.Audio.StopAsync()); }
     private void Settings(object sender, RoutedEventArgs e) => _app.OpenAudio(this);
+    private void OutputSettings(object sender, RoutedEventArgs e) => _app.OpenAudio(this, "output");
     private void PinChanged(object sender, RoutedEventArgs e) => _app.Workspace.Pin(_app.Workspace.PinWidgets, Pin.IsChecked == true);
     private void Expand(object sender, RoutedEventArgs e) => SetExpanded(!Expanded);
     private void SetExpanded(bool show)
     {
         if (show == Expanded) return;
-        if (Expanded) _expanded = new(Width, Height); else _compact = new(Width, Height);
+        if (Expanded) _expanded = new(ActualWidth, ActualHeight); else _compactWidth = ActualWidth;
+        // 紧凑态按 TextBox 的两行排版高度测量，不用固定像素截断中文行框。
+        SizeToContent = SizeToContent.Manual;
         Details.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        var size = show ? _expanded : _compact; Width = size.Width; Height = size.Height;
+        Editor.MaxLines = show ? int.MaxValue : 2;
+        // WPF 把 MaxLines 恢复为默认值时仍可能保留内部视口的两行上限。
+        // 展开时用本地高度约束清除缓存；收起时恢复按行测量，编辑器实例与撤销记录不变。
+        if (show) Editor.MinHeight = 0; else Editor.ClearValue(MinHeightProperty);
+        Editor.VerticalAlignment = show ? VerticalAlignment.Stretch : VerticalAlignment.Top;
+        Width = show ? _expanded.Width : _compactWidth;
+        MinHeight = show ? 360 : 148;
+        if (show) Height = _expanded.Height; else SizeToContent = SizeToContent.Height;
         ExpandButton.Content = show ? "⌃" : "⌄"; ExpandButton.ToolTip = show ? "收起" : "展开";
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() => Editor.ScrollToLine(Math.Max(0, Editor.GetLineIndexFromCharacterIndex(Editor.CaretIndex) - 1))));
     }
     private void GainChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {

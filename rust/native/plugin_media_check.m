@@ -10,8 +10,18 @@
 int main(int argc,const char **argv){@autoreleasepool{
     if(argc!=3)return 2;NSString *kind=[NSString stringWithUTF8String:argv[1]],*path=[NSString stringWithUTF8String:argv[2]];struct stat st;
     if(lstat(path.fileSystemRepresentation,&st)||!S_ISREG(st.st_mode))return 2;NSURL *url=[NSURL fileURLWithPath:path];
-    if([kind isEqual:@"background-image"]){
-        if(st.st_size<1||st.st_size>16*1024*1024)return 2;CGImageSourceRef source=CGImageSourceCreateWithURL((__bridge CFURLRef)url,NULL);if(!source)return 2;
+    if([kind isEqual:@"background-image"]||[kind isEqual:@"avatar-frame"]){
+        if(st.st_size<1||st.st_size>16*1024*1024)return 2;
+        CGImageSourceRef source=NULL;
+        if([kind isEqual:@"avatar-frame"]){
+            // Rust 已检查声明布局；系统解码器再检查内嵌图集，避免只凭 PNG 头接收损坏资源。
+            NSData *data=[NSData dataWithContentsOfURL:url];if(data.length<45)return 2;const uint8_t *b=data.bytes;
+            if(memcmp(b,"CBFA",4)||b[4]!=1||b[5]||b[6]||b[7])return 2;
+            uint32_t n=(uint32_t)b[8]|((uint32_t)b[9]<<8)|((uint32_t)b[10]<<16)|((uint32_t)b[11]<<24);
+            if(n>4096||12+(uint64_t)n+33>data.length)return 2;
+            NSData *png=[data subdataWithRange:NSMakeRange(12+n,data.length-12-n)];source=CGImageSourceCreateWithData((__bridge CFDataRef)png,NULL);
+        }else source=CGImageSourceCreateWithURL((__bridge CFURLRef)url,NULL);
+        if(!source)return 2;
         NSDictionary *properties=CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source,0,NULL));NSUInteger w=[properties[(NSString *)kCGImagePropertyPixelWidth] unsignedIntegerValue],h=[properties[(NSString *)kCGImagePropertyPixelHeight] unsignedIntegerValue];
         BOOL valid=w>0&&h>0&&w<=4096&&h<=4096&&CGImageSourceGetCount(source)==1;
         if(valid){CGImageRef image=CGImageSourceCreateThumbnailAtIndex(source,0,(__bridge CFDictionaryRef)@{(NSString *)kCGImageSourceCreateThumbnailFromImageAlways:@YES,(NSString *)kCGImageSourceThumbnailMaxPixelSize:@64});valid=image!=NULL;if(image)CGImageRelease(image);}CFRelease(source);return valid?0:2;

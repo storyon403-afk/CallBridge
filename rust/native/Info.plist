@@ -16,8 +16,8 @@
     <key>CFBundleIconFile</key><string>CallBridge.icns</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <!-- 对外版本号与内部构建号分开；不能把构建号理解成系统版本。 -->
-    <key>CFBundleShortVersionString</key><string>0.0.3</string>
-    <key>CFBundleVersion</key><string>49</string>
+    <key>CFBundleShortVersionString</key><string>0.0.4</string>
+    <key>CFBundleVersion</key><string>50</string>
     <!-- 开发构建不联网更新；发行脚本仅在临时打包目录启用。公钥不能随构建更换。 -->
     <key>CBEnableUpdates</key><false/>
     <key>SUFeedURL</key><string>https://github.com/storyon403-afk/CallBridge/releases/latest/download/appcast.xml</string>

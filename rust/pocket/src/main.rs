@@ -1,6 +1,7 @@
 // 本文件的目的：提供隔离的 Pocket TTS 命令入口，不持有任何音频设备。
 mod denoise;
 mod english;
+mod frame_avatar;
 mod model;
 mod package;
 mod plugins;

@@ -2,6 +2,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Automation;
 using Microsoft.Win32;
 
 namespace CallBridge.Windows;
@@ -32,9 +33,10 @@ internal sealed class MixingWindow : ModuleWindow
         else
         {
             var gain = new Slider { Minimum = 0, Maximum = 1, Value = Host.Audio.BackgroundGain };
+            AutomationProperties.SetName(gain, "背景音量");
             var value = UI.Label($"背景 {gain.Value:P0}", true); gain.ValueChanged += (_, _) => { Host.Audio.BackgroundGain = (float)gain.Value; value.Text = $"背景 {gain.Value:P0}"; };
             body = UI.Column(UI.Card(UI.Link("文件背景", "", () => Navigate("background")), UI.Label(_file == null ? "未选择文件" : Path.GetFileName(_file), true), UI.GainRow(value, gain)),
-                UI.Card(UI.Link("真实环境", "", () => Navigate("environment")), new CheckBox { Content = "开启真实环境", IsEnabled = false, ToolTip = "Windows 环境音采集待适配" }, UI.GainRow(UI.Label("环境 25%", true), new Slider { Minimum = 0, Maximum = 1, Value = .25, IsEnabled = false })));
+                UI.Card(UI.Label("真实环境", true), UI.Label("Windows 暂不支持环境音采集", true)));
         }
         Message("文件随直接发送混入 · 常驻混音待适配");
         ShowPage(page, page == "background" ? "文件背景" : page == "environment" ? "真实环境" : "", body, UI.Button("■", Host.StopMedia, help: "停止全部"), UI.Button("文字输入", () => Host.OpenText(this)));

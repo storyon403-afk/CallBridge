@@ -10,17 +10,19 @@ import {dressAvatar} from './appearance.mjs';
 import {ReplacementCompositor} from './replacement.mjs';
 import {VideoOutput} from './video-output.mjs';
 import {composition,BackgroundSource} from './background.mjs';
+import {FrameAvatar} from './frame-avatar.mjs';
 const $=id=>document.getElementById(id), gate=new Gate(),presence=new Presence();
 const effects=composition(window.callbridgeComposition),backgroundSource=new BackgroundSource(effects.background);
 const directCamera=effects.person==='none'&&effects.background==='original';
 let headOffset=0,lastCameraFrame=-Infinity;
 const composite=now=>{
- replacement.draw(renderer.domElement,now,{...effects,source:backgroundSource,head:headOffset});
+ replacement.draw(frameAvatar?frameAvatar.render(renderer.domElement.width,renderer.domElement.height,now,stats.mode==='fixture'):renderer.domElement,now,{...effects,source:backgroundSource,head:headOffset});
+ if(frameAvatar)stats.frameAvatar=frameAvatar.state;
  // 正常现场画面独立于人物推理，避免模型延迟让视频变成间歇更新的静帧。
  if(directCamera&&stats.camera&&video.readyState>=2&&now>=lastCameraFrame&&now-lastCameraFrame<=250)replacement.drawOriginal(video);
 };
 const stats={ready:false,mode:'idle',renders:0,inferences:0,face:0,pose:0,hands:0,latencyMs:[],camera:false,microphone:false};
-let vrm, motion, tracker, trackerPromise, stream, demo=false, lastVideoTime=-1;
+let vrm, motion, frameAvatar, tracker, trackerPromise, stream, demo=false, demoStarted=0, lastVideoTime=-1;
 let expectedEpoch=0, trackerEpoch=0, trackerResult=null, frameTime=performance.now(), lastRender=0;
 const video=$('input'), renderer=new THREE.WebGLRenderer({canvas:$('avatar'),alpha:true,antialias:true});
 const replacement=new ReplacementCompositor($('output'),$('background-candidate'),{realtime:effects.person==='avatar'&&effects.background==='original'});
@@ -47,13 +49,15 @@ function framePortrait(){
 framePortrait();
 scene.add(new THREE.HemisphereLight(0xffffff,0x657c72,2));
 const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(1,2,3);scene.add(light);
-function neutral(){motion?.reset();}
+function neutral(){motion?.reset();frameAvatar?.reset();}
 function apply(rig){
  headOffset=rig.face?.head?.y??0;
  const now=performance.now();
  if(rig.framing)presence.update(rig.framing,now);
  stats.presence=presence.state(now).idle?'standby':'tracking';
  motion?.accept(rig.framing?.person===false?{}:rig,now);
+ frameAvatar?.accept(rig,now);
+ if(frameAvatar)stats.frameSignals=rig.frameSignals??null;
 }
 function trackingStatus(now){
  if(directCamera&&stats.camera){$('tracking').hidden=true;$('mode').textContent='实时画面';return false;}
@@ -152,18 +156,26 @@ async function startCamera(){
   for(const track of stream.getVideoTracks())track.addEventListener('ended',()=>{if(gate.accepts(epoch))stop();});
  }catch(error){if(gate.accepts(epoch)){stop();setStatus('摄像头未开启：'+error.message);}}
 }
-function demoStart(){stop();demo=true;stats.mode='demo';$('mode').textContent='动作演示';void backgroundSource.play().catch(e=>setStatus('背景播放失败：'+e.message));setStatus('合成动作演示 · 未使用摄像头 · 视频未发送');}
+function demoStart(){stop();demo=true;demoStarted=performance.now();stats.mode='demo';$('mode').textContent='动作演示';void backgroundSource.play().catch(e=>setStatus('背景播放失败：'+e.message));setStatus('合成动作演示 · 未使用摄像头 · 视频未发送');}
 function animate(now){
  requestAnimationFrame(animate);
  // 保留超出的帧间余量，避免 60 Hz 下用 now 重置后实际掉成 20 fps。
  const interval=1000/60,elapsed=now-lastRender;if(elapsed<interval)return;lastRender=now-elapsed%interval;
  const dt=Math.min((now-frameTime)/1000,.1);frameTime=now;
  if(demo){
+  if(frameAvatar){
+   // 演示轮流覆盖五种已绘表情，明确标成合成演示；真实相机仍由嘴角几何驱动。
+   const phase=Math.floor((now-demoStarted)/1600)%5,labels=['中性','微笑','张嘴','眨眼','不悦'];
+   $('mode').textContent='动作演示 · '+labels[phase];
+   apply({face:{head:{x:0,y:.28*Math.sin((now-demoStarted)/1500),z:.18*Math.sin(now/800)},eye:{l:phase===3?0:1,r:phase===3?0:1},mouth:{shape:{A:phase===2?.7:0}}},
+    frameSignals:{smile:phase===1?1:0,frown:phase===4?1:0,open:phase===2?.7:0},shoulderTilt:0});
+  }else{
   const shape={A:0,I:0,E:0,O:0,U:0};shape[['A','I','E','O','U'][Math.floor(now/1400)%5]]=.35+.5*Math.abs(Math.sin(now/350));
   const hand={LeftWrist:{x:0,y:.3*Math.sin(now/800),z:0}};
   for(const finger of ['Index','Middle','Ring','Little'])for(const segment of ['Proximal','Intermediate','Distal'])hand['Left'+finger+segment]={x:0,y:0,z:.65+.6*Math.sin(now/700)};
   apply({face:{head:{x:.1*Math.sin(now/600),y:.3*Math.sin(now/1000),z:.08*Math.cos(now/900)},eye:{l:1,r:1},pupil:{x:0,y:0},mouth:{shape}},
    pose:{Spine:{x:0,y:.1*Math.sin(now/1300),z:0},LeftUpperArm:{x:0,y:0,z:.5},LeftLowerArm:{x:0,y:0,z:-1.5}},hands:{Left:hand}});
+  }
  }
  const idle=trackingStatus(now);motion?.tick(dt,now,stats.mode==='fixture',idle&&!demo);
  if(stats.mode==='camera' && video.readyState>=2 && video.currentTime!==lastVideoTime && !gate.pending){
@@ -209,6 +221,16 @@ async function load(){
  const buffer=await (await fetch(custom?'character/model':'model/sample.vrm')).arrayBuffer();
  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',buffer)),x=>x.toString(16).padStart(2,'0')).join('');
  if(hash!==asset.sha256||buffer.byteLength!==asset.bytes)throw Error('示例角色校验失败');
+ if(new TextDecoder().decode(new Uint8Array(buffer,0,4))==='CBFA'){
+  frameAvatar=await FrameAvatar.load(buffer);stats.appearance={custom:true,frameAvatar:true};stats.ready=true;
+  $('hint').textContent='2D 帧角色 · 转头 / 眨眼 / 张嘴 / 微笑 / 不悦 · 身体保持直立';
+  document.querySelector('h1').textContent='2D 帧形象';
+  const help=document.querySelectorAll('details p');
+  help[2].textContent='当前帧角色跟随转头、双眼眨眼、张嘴、嘴角上扬的微笑及嘴角下压的不悦。笑容优先于普通张嘴；表情连续确认后切换。身体保持直立，仅保留最多约 2° 的肩部倾斜，歪头不会带歪整个身体。没有独立眉毛识别、头颈分层、手臂、手指或左右眼驱动；未检测到面部约 700 毫秒后回到待机。';
+  help[4].textContent='此角色使用插件内嵌的二维透明图集，由多个预绘帧切换；不是三维骨骼模型，也不是原视频自动生成的完整动作模型。';
+  for(const id of ['demo','camera','fixture'])$(id).disabled=false;
+  void videoOutput.refresh();return;
+ }
  const loader=new GLTFLoader();loader.register(parser=>new VRMLoaderPlugin(parser));
  const gltf=await loader.parseAsync(buffer,'');vrm=gltf.userData.vrm;if(!vrm)throw Error('未识别 VRM 角色');
  VRMUtils.rotateVRM0(vrm);scene.add(vrm.scene);stats.appearance=custom?{custom:true}:dressAvatar(vrm);motion=new AvatarMotion(vrm);neutral();stats.ready=true;
@@ -218,5 +240,5 @@ async function load(){
  void videoOutput.refresh();
 }
 // 仅测试构建暴露数值状态与演示入口，不提供录音、上传或默认设备访问。
-window.avatarLab={stats,fixture,stop,demo:demoStart,apply,gate,renderer,scene,camera,presence,solve,replacement,videoOutput,effects,backgroundSource,get motion(){return motion;},get vrm(){return vrm;}};
+window.avatarLab={stats,fixture,stop,demo:demoStart,apply,gate,renderer,scene,camera,presence,solve,replacement,videoOutput,effects,backgroundSource,get motion(){return motion;},get vrm(){return vrm;},get frameAvatar(){return frameAvatar;}};
 load().catch(error=>{setStatus('加载失败：'+error.message);$('hint').textContent='加载失败，请检查构建资源';});

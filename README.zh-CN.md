@@ -5,9 +5,11 @@
 
 CallBridge 可以把你打的字变成语音，送进通话。你还可以换声音、加背景音，或者用虚拟人物和不同背景参加视频通话。
 
-**当前版本 0.0.3：macOS 26+（Apple Silicon）与 Windows 11 x64。**
+**测试版本 0.0.4：macOS 26+（Apple Silicon）与 Windows 11 x64。**
 
 Windows 提供[便携包、使用与构建说明](rust/windows/README.md)，包含系统语音、文件混音和虚拟人物画面输出。Pocket/个人音色、插件安装、常驻环境混音、云端操作和自动更新目前仅在 macOS 版提供。
+
+0.0.4 改善 Windows 文字输入框、输出设备提示和 OBS 像素转换，并加入 macOS CBFA v1 二维帧角色实验支持。请从 [0.0.4 测试版](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.4) 手动下载；稳定版自动更新仍指向 0.0.3。新版 Windows 真机、设备与实际通话验收尚待完成，实验人物素材不随包发布。
 
 ## 怎么开始
 

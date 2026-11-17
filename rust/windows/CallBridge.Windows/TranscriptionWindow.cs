@@ -45,7 +45,7 @@ internal sealed class TranscriptionWindow : ModuleWindow
             default:
                 page = "home";
                 body = UI.Column(UI.Hero("未采集", "· · · · · · · · · · · · · ·"), UI.Card(UI.Link("输入", Host.Preferences.MicrophoneId == null ? "未选择" : "已选择", () => Navigate("input")), UI.Link("变声音色", "待接入", () => Navigate("voice")), UI.Link("同时转文字", "未启用", () => Navigate("transcribe")), UI.Link("输出", Host.Preferences.PreviewId == null ? "未选择" : "已选择", () => Navigate("output"))));
-                status = "请配置变声插件"; actions.Add(UI.Button("试听", () => { }, false, status)); break;
+                status = "Windows 暂不支持实时变声与转录"; actions.Add(UI.Button("试听", () => { }, false, status)); break;
         }
         ShowPage(page, page switch { "input" => "输入", "output" => "输出", "voice" => "变声音色", "transcribe" => "同时转文字", "plugins" => "音频插件", "transcript" => "转录文字", _ => "" }, body, actions.ToArray()); Message(status);
     }

@@ -2,6 +2,7 @@
 // 上游 Face.solve 会原地改写坐标，先复制；可见性决定哪些肢体信号能更新目标。
 import * as Kalidokit from 'kalidokit/dist/kalidokit.es.js';
 import {mouthShape,handBasis,framing,cameraPoint} from './signals.mjs';
+import {frameFaceSignals,frameShoulderTilt} from './frame-signals.mjs';
 export const bounded = (n, lo=-Math.PI, hi=Math.PI) => Number.isFinite(n) ? Math.min(hi,Math.max(lo,n)) : 0;
 export function points(input, count) {
   return Array.isArray(input) && input.length === count && input.every(p=>p && ['x','y','z'].every(k=>Number.isFinite(p[k])))
@@ -26,7 +27,8 @@ export function solve(results, width, height) {
   const world=points(results.poseWorldLandmarks ?? results.za,33);
   const options={runtime:'mediapipe',imageSize:{width,height}};
   const shape=face?mouthShape(face,width,height):null;
-  const output={face:null,pose:null,hands:{},handFrames:{},directions:{},fingerDirections:{}};
+  const output={face:null,pose:null,hands:{},handFrames:{},directions:{},fingerDirections:{},
+    frameSignals:frameFaceSignals(face,width,height),shoulderTilt:frameShoulderTilt(pose,width,height)};
   if(pose && world){
     // KalidoKit 沿用自拍侧名（Right 对应输入索引 11/13/15），与手部交换一致。
     // 截断身体不能靠猜出的膝盖/脚踝带动腿；短缺失交给渲染层的有期限保持处理。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""目的：可复现地生成官方样例包及下载清单；只写本地，不上传、不安装、不读取私人素材。"""
+"""目的：可复现地生成官方资源包及下载清单；只写本地，不上传、不安装、不读取私人素材。"""
 import argparse
 import hashlib
 import io
@@ -40,19 +40,33 @@ def ambience():
 
 
 def packages():
-    return [
+    samples = [
         ('light-denoise', 'audio-denoise', 'settings.json', (ROOT / 'plugins/official/examples/light-denoise/settings.json').read_bytes(), {'zh-Hans':'轻度降噪样例','en':'Light denoise sample','ja':'軽いノイズ除去サンプル'}, []),
         ('soft-room', 'audio-background', 'background.wav', ambience(), {'zh-Hans':'柔和环境音样例','en':'Soft ambience sample','ja':'穏やかな環境音サンプル'}, []),
         ('dusk', 'background-image', 'background.png', png(), {'zh-Hans':'暮色背景样例','en':'Dusk background sample','ja':'夕暮れ背景サンプル'}, [{'id':'avatar-holistic-v1','version':'1.0.0'}]),
     ]
+    result = [(slug, kind, entry, data, names, dependencies, 'PolyForm-Noncommercial-1.0.0', 'CallBridge')
+              for slug, kind, entry, data, names, dependencies in samples]
+    sources = json.loads((ROOT / 'plugins/official/characters/sources.json').read_text())
+    for slug, names in [
+        ('spider-man', {'zh-Hans': '蜘蛛侠 · Homecoming', 'en': 'Spider-Man · Homecoming', 'ja': 'スパイダーマン · Homecoming'}),
+        ('gg-bond', {'zh-Hans': '猪猪侠 · 参考重建版（本地原型）', 'en': 'GG Bond (reference reconstruction)', 'ja': 'GG Bond（ローカル試作）'}),
+    ]:
+        model = ROOT / 'build/official-plugins/characters' / (slug + '.vrm')
+        if not model.is_file():
+            raise SystemExit('Missing character resource; run scripts/build-character-plugins.py: ' + str(model))
+        result.append((slug, 'avatar', 'character.vrm', model.read_bytes(), names,
+                       [{'id': 'avatar-holistic-v1', 'version': '1.0.0'}],
+                       sources[slug]['license'], sources[slug]['author']))
+    return result
 
 
 def build():
     result = []
-    for slug, kind, entry, data, names, dependencies in packages():
+    for slug, kind, entry, data, names, dependencies, license_name, author in packages():
         manifest = dict(schema=1, api=1, id='org.callbridge.'+slug, version='1.0.0', name=names['zh-Hans'], kind=kind,
                         core_min='0.13.11', core_max='0.14.0', platforms=['any'], dependencies=dependencies, permissions=[],
-                        license='PolyForm-Noncommercial-1.0.0', author='CallBridge', entry=entry,
+                        license=license_name, author=author, entry=entry,
                         files=[dict(path=entry, bytes=len(data), sha256=hashlib.sha256(data).hexdigest())])
         encoded = (json.dumps(manifest, ensure_ascii=False, indent=2)+'\n').encode()
         output = io.BytesIO()
@@ -73,15 +87,20 @@ def main():
     previous=json.loads(CATALOG.read_text()) if CATALOG.exists() else {'plugins':[]}
     published={p['id']:p.get('published',False) for p in previous['plugins']}
     built=build();catalog={'schema':1,'plugins':[]}
+    # 两个新角色尚未完成发布审查；保留既有样例的在线核验路径，不替角色填写发布成功。
+    review_pending={'org.callbridge.spider-man','org.callbridge.gg-bond'}
+    if any(published.get(identity) for identity in review_pending):
+        raise SystemExit('Character publication review is incomplete; see plugins/official/characters/README.md')
     if args.verify_published:
         # 发布后的只读验证：所有附件存在且字节相符后才把目录标为可下载。
         import urllib.request
         for record,payload,_ in built:
+            if record['id'] in review_pending:continue
             with urllib.request.urlopen(record['url'],timeout=60) as response:
                 if not response.url.startswith('https://'):raise SystemExit('HTTPS required')
                 remote=response.read(len(payload)+1)
             if remote!=payload:raise SystemExit('Published asset differs: '+record['id'])
-        published={record['id']:True for record,_,_ in built}
+        published={record['id']:record['id'] not in review_pending for record,_,_ in built}
     for record,payload,manifest in built:
         record['published']=published.get(record['id'],False)
         old=next((p for p in previous['plugins'] if p['id']==record['id']),None)

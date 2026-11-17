@@ -153,13 +153,17 @@ class ObsCamera:
         import numpy as np
         import pyvirtualcam
         self.np = np
+        # OBS 不接受 RGBA；上游画布已完成不透明合成，此处只去掉 alpha，保持 RGB 顺序。
+        # 复用连续内存，避免跨语言后端把带步幅的三通道视图误读为紧密排列的像素。
+        self.rgb = np.empty((HEIGHT, WIDTH, 3), dtype=np.uint8)
         # 固定 backend 和 device，任何失败都不得退回物理摄像头或其他虚拟设备。
-        self.camera = pyvirtualcam.Camera(WIDTH, HEIGHT, 30, fmt=pyvirtualcam.PixelFormat.RGBA,
+        self.camera = pyvirtualcam.Camera(WIDTH, HEIGHT, 30, fmt=pyvirtualcam.PixelFormat.RGB,
                                           device="OBS Virtual Camera", backend="obs")
 
     def send(self, rgba):
         frame = self.np.frombuffer(rgba, dtype=self.np.uint8).reshape((HEIGHT, WIDTH, 4))
-        self.camera.send(frame)
+        self.np.copyto(self.rgb, frame[:, :, :3])
+        self.camera.send(self.rgb)
 
     def close(self):
         self.camera.close()

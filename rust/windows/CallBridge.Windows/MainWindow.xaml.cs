@@ -16,7 +16,7 @@ public partial class MainWindow : Window
             UI.Tile("音频模拟", "\uE767", () => app.OpenAudio(this)),
             UI.Tile("混音设置", "\uE9E9", () => app.OpenMixing(this)),
             UI.Tile("画面处理", "\uE714", () => app.OpenVisualCatalog(this)),
-            UI.Tile("声音转录", "\uE720", () => app.OpenTranscription(this)));
+            UI.Tile("声音转录", "\uE720", () => app.OpenTranscription(this), false, "Windows 暂不支持"));
         app.Audio.Status += text => { Status.Text = text; Status.ToolTip = text; };
         Closing += (_, e) => { if (app.Exiting) return; e.Cancel = true; app.Workspace.Dismiss(this); };
     }

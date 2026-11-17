@@ -1,6 +1,8 @@
 """只用内存管道与假摄像头验证协议、迟到帧、停止和超时；不触发设备 I/O。"""
 import io
+import importlib.util
 import os
+import types
 import threading
 import unittest
 from unittest.mock import patch
@@ -92,6 +94,40 @@ class Tests(unittest.TestCase):
         with patch.object(sender, "ObsCamera", side_effect=AssertionError("must not create")):
             with patch("builtins.print"):
                 self.assertEqual(sender.main(["--obs-send"]), 2)
+
+
+@unittest.skipUnless(importlib.util.find_spec("numpy"), "numpy required for OBS pixel conversion")
+class ObsPixelConversion(unittest.TestCase):
+    def test_final_rgba_becomes_contiguous_rgb_without_channel_swap(self):
+        import numpy as np
+        # 假设备仅验证真实 NumPy 转换，不打开摄像头；RGBA 初始化会立即失败。
+        class Backend:
+            def __init__(self, width, height, fps, *, fmt, device, backend):
+                assert (width, height, fps, fmt, device, backend) == (
+                    sender.WIDTH, sender.HEIGHT, 30, "RGB", "OBS Virtual Camera", "obs")
+                self.frames = []
+                self.closed = False
+            def send(self, frame):
+                assert frame.flags.c_contiguous and frame.dtype == np.uint8
+                self.frames.append(frame.copy())
+            def close(self):
+                self.closed = True
+        module = types.SimpleNamespace(Camera=Backend, PixelFormat=types.SimpleNamespace(RGB="RGB"))
+        with patch.dict("sys.modules", {"pyvirtualcam": module}):
+            camera = sender.ObsCamera()
+        rgba = np.zeros((sender.HEIGHT, sender.WIDTH, 4), dtype=np.uint8)
+        rgba[:] = [12, 34, 56, 255]
+        rgba[0, 1] = [250, 100, 25, 255]
+        camera.send(rgba.tobytes())
+        np.testing.assert_array_equal(camera.camera.frames[0], rgba[:, :, :3])
+        rgba[:] = [90, 80, 70, 255]
+        camera.send(rgba.tobytes())
+        np.testing.assert_array_equal(camera.camera.frames[1], rgba[:, :, :3])
+        with self.assertRaises(ValueError):
+            camera.send(b"truncated")
+        self.assertEqual(len(camera.camera.frames), 2)
+        camera.close()
+        self.assertTrue(camera.camera.closed)
 
 
 @unittest.skipUnless(os.environ.get("CB_TEST_CORE"), "set CB_TEST_CORE to load the actual Rust library")

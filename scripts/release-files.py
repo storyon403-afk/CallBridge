@@ -23,6 +23,9 @@ def files(root=ROOT):
         p = root / name
         if not name or name == 'release/VALIDATION.md' or any(part in BLOCKED for part in Path(name).parts) or p.suffix in {'.pyc', '.p12', '.mobileprovision'}:
             continue
+        # 实验素材只供本机评估，发布许可未确认前不得进入源码归档。
+        if name.startswith('plugins/experimental/'):
+            continue
         if name not in ROOT_FILES and name not in {'rust/Cargo.toml','rust/Cargo.lock'} and not name.startswith(PREFIXES):
             continue
         if p.is_symlink():

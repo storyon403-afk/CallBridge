@@ -50,6 +50,46 @@
           "version": "1.0.0"
         }
       ]
+    },
+    {
+      "id": "org.callbridge.spider-man",
+      "version": "1.0.0",
+      "kind": "avatar",
+      "names": {
+        "zh-Hans": "蜘蛛侠 · Homecoming",
+        "en": "Spider-Man · Homecoming",
+        "ja": "スパイダーマン · Homecoming"
+      },
+      "bytes": 29167269,
+      "sha256": "8de6aef662ced0df7aa7b37a93c010139a7fba39e4b136a8edde1824dfff6a64",
+      "url": "https://github.com/storyon403-afk/CallBridge/releases/download/plugins-v1/spider-man-1.0.0.cbplugin",
+      "published": false,
+      "dependencies": [
+        {
+          "id": "avatar-holistic-v1",
+          "version": "1.0.0"
+        }
+      ]
+    },
+    {
+      "id": "org.callbridge.gg-bond",
+      "version": "1.0.0",
+      "kind": "avatar",
+      "names": {
+        "zh-Hans": "猪猪侠 · 参考重建版（本地原型）",
+        "en": "GG Bond (reference reconstruction)",
+        "ja": "GG Bond（ローカル試作）"
+      },
+      "bytes": 5792985,
+      "sha256": "9c9ea746d17b073022f363ed971e09344ccf903c75d05cab9a729ddd03cb905e",
+      "url": "https://github.com/storyon403-afk/CallBridge/releases/download/plugins-v1/gg-bond-1.0.0.cbplugin",
+      "published": false,
+      "dependencies": [
+        {
+          "id": "avatar-holistic-v1",
+          "version": "1.0.0"
+        }
+      ]
     }
   ]
 }

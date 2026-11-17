@@ -2,13 +2,13 @@
 
 [中文](#中文使用流程) · [English](#install-the-app)
 
-Version **0.0.3** supports **macOS 26+ on Apple Silicon** and **Windows 11 x64**.
+Test release **0.0.4 (build 50)** targets **macOS 26+ on Apple Silicon** and **Windows 11 x64**.
 
-For Windows, download `CallBridge-0.0.3-windows-x64.zip`, fully extract it and open `CallBridge.exe`. See the [portable guide](rust/windows/PORTABLE.md) and [Windows feature scope](rust/windows/README.md). Windows updates are manual. The instructions below cover macOS.
+For Windows, download `CallBridge-0.0.4-windows-x64.zip`, fully extract it and open `CallBridge.exe`. See the [portable guide](rust/windows/PORTABLE.md) and [Windows feature scope](rust/windows/README.md). Windows updates are manual. The instructions below cover macOS.
 
 ## Install the App
 
-Download `CallBridge-0.0.3-macos-arm64.zip` from [Releases](https://github.com/storyon403-afk/CallBridge/releases). Unzip it and move `CallBridge.app` to Applications, then double-click to open it. The ZIP includes the video runtime; you do not need to install Node.js separately.
+Download `CallBridge-0.0.4-macos-arm64.zip` from [Releases](https://github.com/storyon403-afk/CallBridge/releases). Unzip it and move `CallBridge.app` to Applications, then double-click to open it. The ZIP includes the video runtime; you do not need to install Node.js separately.
 
 The App is not Apple signed or notarized. If macOS blocks the first launch, open **System Settings → Privacy & Security** and review the message for CallBridge. Use **Open Anyway** only if you trust the download. Do not turn off system security protections. If the App is reported as damaged, download a fresh copy and compare its checksum with `SHA256SUMS`.
 
@@ -55,6 +55,8 @@ Keep the video window visible while using it. Closing it, hiding the App, or put
 Open **Official plugins** from Voice → Audio plugins, Audio mix → Background file, or the character/background list. Choose **Refresh list → Download → Use**. An item marked **Coming soon** cannot be downloaded yet. Existing speech and video engines have their own download buttons.
 
 To import a package you already have, click **Import local plugin…**, choose its folder, `.cbplugin`, or `.zip` file, then select the installed item. Downloading or importing does not start playback or the camera. See [plugin instructions](https://github.com/storyon403-afk/CallBridge/blob/main/plugins/official/README.md).
+
+0.0.4 is a pre-release: install it manually from [v0.0.4](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.4). The stable update feed remains on 0.0.3 until a newer stable build is published. Windows device and real-call acceptance for this build is pending.
 
 ## Automatic updates
 
@@ -125,9 +127,11 @@ If you move the checkout, update your wrapper paths. `./CB` and `./CBT` are the 
 
 ### 安装和更新
 
-Windows 11 x64 用户请下载 `CallBridge-0.0.3-windows-x64.zip`，完整解压后打开 `CallBridge.exe`；可先运行 `Test-Windows.cmd` 检查组件。参见 [Windows 便携包说明](rust/windows/PORTABLE.md)及[功能范围](rust/windows/README.md)。Windows 版暂不支持自动更新，升级时退出旧版，完整解压新版后运行。以下步骤适用于 macOS。
+0.0.4（build 50）是测试版，需从 [v0.0.4](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.4) 手动下载。稳定版自动更新仍保留 0.0.3；新版 Windows 真机与通话验收尚待完成。
 
-到 [Releases](https://github.com/storyon403-afk/CallBridge/releases) 下载 `CallBridge-0.0.3-macos-arm64.zip`，解压，把 `CallBridge.app` 拖进“应用程序”，双击打开。需要 Apple Silicon Mac 和 macOS 26 或更新版本，安装包已带画面运行环境，不必另外安装 Node.js。
+Windows 11 x64 用户请下载 `CallBridge-0.0.4-windows-x64.zip`，完整解压后打开 `CallBridge.exe`；可先运行 `Test-Windows.cmd` 检查组件。参见 [Windows 便携包说明](rust/windows/PORTABLE.md)及[功能范围](rust/windows/README.md)。Windows 版暂不支持自动更新，升级时退出旧版，完整解压新版后运行。以下步骤适用于 macOS。
+
+到 [Releases](https://github.com/storyon403-afk/CallBridge/releases) 下载 `CallBridge-0.0.4-macos-arm64.zip`，解压，把 `CallBridge.app` 拖进“应用程序”，双击打开。需要 Apple Silicon Mac 和 macOS 26 或更新版本，安装包已带画面运行环境，不必另外安装 Node.js。
 
 App 尚未经过苹果发布签名和公证。如果第一次打开被拦截，到“系统设置 → 隐私与安全性”查看 CallBridge 的提示；确认信任下载来源后再点“仍要打开”。不要关闭系统安全保护。如果提示文件损坏，请重新下载，并与 `SHA256SUMS` 中的校验码对照。
 

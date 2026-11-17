@@ -69,7 +69,7 @@ static NSString *requirements(NSString *kind){
         @"engine-avatar":CBL(@"仅接受完整 Holistic 引擎资源包，版本和摘要必须匹配；第三方脚本不受支持。"),
         @"voice-zh":CBL(@"仅接受当前 Pocket 中文模型导出的 JSON 音色特征，不能使用旧参数预设。需要先安装中文引擎。"),
         @"voice-en":CBL(@"仅接受官方英文 2026.10 模型导出的 Float32 safetensors 音色，最多 16 MB。需要先安装英文引擎。"),
-        @"avatar":CBL(@"需要自包含 VRM 0.x/1.0，最多 64 MiB，完整 humanoid 骨架；纹理必须内嵌，禁止远程地址和脚本。需要画面引擎。"),
+        @"avatar":CBL(@"接受自包含 VRM（最多 64 MiB）或 CBFA v1 二维帧角色（最多 16 MiB）。纹理必须内嵌，禁止远程地址和脚本。需要画面引擎。"),
         @"background-image":CBL(@"需要 PNG/JPEG，最多 16 MiB、4096×4096；背景始终静音。需要画面引擎。"),
         @"background-video":CBL(@"需要 MP4/MOV/WebM，最多 64 MiB、1080p、120 秒；忽略音轨。需要画面引擎。"),
         @"audio-background":CBL(@"需要 30 秒内、单/双声道 PCM WAV，8–192 kHz、最多 32 MiB。导入后由混音面板控制播放。"),
