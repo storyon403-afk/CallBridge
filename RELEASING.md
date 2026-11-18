@@ -22,6 +22,8 @@ The 0.0.4 Windows test package is rebuilt from current source using `sh rust/scr
 
 `python3 scripts/check-windows.py` verifies archive contents and dependencies; `python3 scripts/package-release.py` includes the Windows ZIP and `WINDOWS-SHA256SUMS` in the combined checksum file. These checks do not execute Windows UI or devices.
 
+For runtime acceptance, compare the ZIP digest with the published `SHA256SUMS` and extract it to a fresh directory. On macOS, run `CallBridge.app/Contents/MacOS/CallBridge --ui-smoke` from a writable scratch directory (use the absolute path to the extracted executable). Then run the repository's `scripts/check-packaged-video.mjs` with the **extracted** `CallBridge.app/Contents/MacOS/node` or, on Windows, `runtime\node.exe`. The script checks the packaged page assets, passes one synthetic 720p frame through the packaged host and worker in memory, and verifies stop and exit. It never opens a device. On Windows, also run `Test-Windows.cmd` and the packaged `UI-ACCEPTANCE.md`; record the package digest, Windows build, log and observed results before promoting the release.
+
 ## GitHub upload scope
 
 Include source, build scripts, usage, licenses, `plugins/official/`, website assets, `SECURITY.md`, `THIRD_PARTY_NOTICES.md`. Keep `website/media/`, `assets/demos/`, `assets/diagrams/04.png` required by the site. Exclude `build/`, `target/`, `node_modules/`, `__pycache__/`, `plugins/experimental/`, personal recordings/voices/settings. Experimental artwork has no confirmed redistribution clearance and remains local; do not commit or attach it. Generated `UPLOAD_FILES.txt` lists source contents.

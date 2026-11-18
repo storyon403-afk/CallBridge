@@ -4,7 +4,9 @@
 
 Test release **0.0.4 (build 50)** targets **macOS 26+ on Apple Silicon** and **Windows 11 x64**.
 
-For Windows, download `CallBridge-0.0.4-windows-x64.zip`, fully extract it and open `CallBridge.exe`. See the [portable guide](rust/windows/PORTABLE.md) and [Windows feature scope](rust/windows/README.md). Windows updates are manual. The instructions below cover macOS.
+**Hear your first sentence on Windows.** Download the Windows ZIP from [v0.0.4](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.4), extract the entire folder, and open `CallBridge.exe`. In **音频模拟 → 输出设备 → 本机试听**, select your headphones or speakers. Open **文字输入**, type a sentence, expand **⌄**, and click **试听这段**. Leave **允许向所选设备发送** unchecked. Local preview does not require OBS, a virtual audio cable, or a call.
+
+To send speech into a call later, select the virtual cable’s **playback** endpoint under **通话输出** and its paired **recording** endpoint as the call app’s microphone. Keep headphones selected for local preview. If the app fails to open, run `Test-Windows.cmd` in the extracted folder and keep `windows-check.log`. See the [portable guide](rust/windows/PORTABLE.md) and [Windows feature scope](rust/windows/README.md). Windows updates are manual. The instructions below cover macOS.
 
 ## Install the App
 
@@ -129,7 +131,9 @@ If you move the checkout, update your wrapper paths. `./CB` and `./CBT` are the 
 
 0.0.4（build 50）是测试版，需从 [v0.0.4](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.4) 手动下载。稳定版自动更新仍保留 0.0.3；新版 Windows 真机与通话验收尚待完成。
 
-Windows 11 x64 用户请下载 `CallBridge-0.0.4-windows-x64.zip`，完整解压后打开 `CallBridge.exe`；可先运行 `Test-Windows.cmd` 检查组件。参见 [Windows 便携包说明](rust/windows/PORTABLE.md)及[功能范围](rust/windows/README.md)。Windows 版暂不支持自动更新，升级时退出旧版，完整解压新版后运行。以下步骤适用于 macOS。
+**Windows：先听到第一句话。** 下载 Windows ZIP，完整解压后打开 `CallBridge.exe`。在「音频模拟 → 输出设备 → 本机试听」选自己的耳机或扬声器。回到「文字输入」，写一句话，点 **⌄ → 试听这段**。保持「允许向所选设备发送」未勾选即可；本机试听不需要 OBS、虚拟音频线或通话软件。
+
+需要在通话中使用时，再把「通话输出」设为虚拟音频线的**播放端**，把通话软件的麦克风设为同一条线配对的**录音端**；本机试听仍用耳机。如果程序打不开，在解压目录双击 `Test-Windows.cmd`，保留生成的 `windows-check.log`。参见 [Windows 便携包说明](rust/windows/PORTABLE.md)及[功能范围](rust/windows/README.md)。Windows 版暂不支持自动更新，升级时退出旧版，完整解压新版后运行。以下步骤适用于 macOS。
 
 到 [Releases](https://github.com/storyon403-afk/CallBridge/releases) 下载 `CallBridge-0.0.4-macos-arm64.zip`，解压，把 `CallBridge.app` 拖进“应用程序”，双击打开。需要 Apple Silicon Mac 和 macOS 26 或更新版本，安装包已带画面运行环境，不必另外安装 Node.js。
 
