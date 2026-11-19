@@ -16,6 +16,7 @@ for(const file of manifest.files){
  await writeFile(path.join(out,file.name==='sample.vrm'?'model/sample.vrm':file.name==='pose.jpg'?'fixtures/pose.jpg':file.name),data);
 }
 await writeFile(path.join(out,'assets.json'),JSON.stringify(manifest));
+await build({entryPoints:[path.join(root,'src/studio-portrait.mjs')],outfile:path.resolve(out,'../studio-portrait.js'),bundle:true,minify:true,format:'iife',target:'es2022',legalComments:'linked'});
 const result=await build({entryPoints:[path.join(root,'src/app.mjs')],outfile:path.join(out,'app.js'),bundle:true,minify:true,format:'esm',target:'es2022',metafile:true,legalComments:'linked'});
 await writeFile(path.resolve(root,'../build/avatar-build-meta.json'),JSON.stringify(result.metafile));
 for(const file of ['index.html','style.css','THIRD_PARTY.txt'])await copyFile(path.join(root,file),path.join(out,file));

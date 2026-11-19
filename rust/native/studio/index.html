@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' cb-art: blob: data:; connect-src blob: data:; media-src 'self' blob:; worker-src blob:; base-uri 'none'; form-action 'none'">
+<title>CallBridge</title><link rel="stylesheet" href="studio.css"><link rel="stylesheet" href="controls.css"><link rel="stylesheet" href="board.css"><script src="studio.js" defer></script><script src="studio-portrait.js" defer></script><script src="board.js" defer></script></head>
+<body class="material-desktop"><header class="brand"><img src="media/app-icon.png" alt="">CallBridge</header>
+<main><header class="panel-head"><h1>我的通话组合</h1><button id="open-speech" data-action="text" aria-haspopup="dialog">打字说话</button></header>
+<div class="workspace-bar"><div class="view-switch"><button id="mix-view" aria-pressed="true">组合台</button><button id="route-view" aria-pressed="false">接线台</button></div><span id="route-state" role="status"></span><button id="global-stop" data-action="stop" disabled>停止全部</button></div>
+<div id="mix-board" class="body"><section class="composition material-glass"><div class="stage">
+<img id="backdrop" alt="" hidden><video id="motion-backdrop" muted loop playsinline hidden></video><div class="stage-label">构图预览</div><div class="stage-caption"><h2 id="scene-name"></h2><small id="scene-note"></small><small id="preview-status" role="status"></small></div>
+<img id="portrait" alt="" hidden></div>
+<div class="frames" id="framing" role="group" aria-label="取景"><span class="frame-title">取景</span></div>
+<footer><div class="section-head"><h2>当前组合</h2></div><div id="slots"></div><div id="inspector" class="inspector" hidden></div></footer></section>
+<section class="library material-glass"><div class="lib-heading"><h2 id="library-title">素材库</h2><button id="import" data-action="plugin">导入插件</button></div><nav class="filter-strip" id="filters"></nav><div id="cards" role="region" tabindex="0" aria-labelledby="library-title"></div></section></div>
+<section id="bay" class="patchbay material-glass" hidden><header><h2>通话接线</h2><small id="route-info"></small></header><div id="lanes"></div><div class="bay-tools"><section><h3>环境输入</h3><div id="mic-tools"></div></section><section><h3>插件与素材</h3><button data-action="plugins">官方插件</button><button data-action="visualTools">画面插件管理</button><button data-action="audioTools">音频插件管理</button></section><section><h3>其他设置</h3><button data-action="mixTools">混音设置</button><button data-action="personal">个人音色</button><button data-action="input">声音输入</button><button data-action="cloud">云服务</button><button data-action="glass" id="glass">半透明背景</button><button data-action="refresh" id="refresh">刷新设备</button></section></div></section></main>
+</body></html>

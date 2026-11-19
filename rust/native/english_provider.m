@@ -1,3 +1,4 @@
+#import "window_workspace.h"
 /* 本文件的目的：通过审核并锁定的官方独立程序加载英文权重，沿用 48 kHz provider。
  * 兼管中英文共用的离线降噪适配；只在后台读写临时 WAV，不更改设备、混音或授权。 */
 #import "english_provider.h"
@@ -60,7 +61,7 @@ void CBEnglishDownloadDialog(NSWindow *window,void (^progress)(NSString *),void 
     NSAlert *a=[NSAlert new];a.messageText=CBL(@"下载英文模型");a.informativeText=CBL(@"约 233 MB；安装约 246 MB。请先在 Hugging Face 的 kyutai/pocket-tts 页面同意模型条款。本机已登录可直接继续，否则在下方输入只读令牌；令牌仅用于本次下载。");
     [a addButtonWithTitle:CBL(@"下载")];[a addButtonWithTitle:CBL(@"取消")];[a addButtonWithTitle:CBL(@"打开授权页")];
     NSSecureTextField *token=[[NSSecureTextField alloc] initWithFrame:NSMakeRect(0,0,330,24)];token.placeholderString=CBL(@"只读令牌（本机已登录可留空）");a.accessoryView=token;
-    [a beginSheetModalForWindow:window completionHandler:^(NSModalResponse response){if(response==NSAlertFirstButtonReturn){NSString *value=token.stringValue;token.stringValue=@"";CBEnglishInstall(value,progress,completion);}else if(response==NSAlertThirdButtonReturn){[NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://huggingface.co/kyutai/pocket-tts"]];completion(nil);}else completion(nil);}];
+    [a beginSheetModalForWindow:CBDialogWindow(window) completionHandler:^(NSModalResponse response){if(response==NSAlertFirstButtonReturn){NSString *value=token.stringValue;token.stringValue=@"";CBEnglishInstall(value,progress,completion);}else if(response==NSAlertThirdButtonReturn){[NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://huggingface.co/kyutai/pocket-tts"]];completion(nil);}else completion(nil);}];
 }
 static NSURL *temporaryDirectory(NSString **error){char resolved[PATH_MAX];if(!realpath(NSTemporaryDirectory().fileSystemRepresentation,resolved)){*error=@"临时目录不可用";return nil;}NSString *base=[NSString stringWithUTF8String:resolved];NSURL *url=[NSURL fileURLWithPath:[base stringByAppendingPathComponent:[@"cb-english-" stringByAppendingString:NSUUID.UUID.UUIDString]] isDirectory:YES];NSError *e=nil;if(![NSFileManager.defaultManager createDirectoryAtURL:url withIntermediateDirectories:NO attributes:@{NSFilePosixPermissions:@0700} error:&e]){*error=e.localizedDescription;return nil;}return url;}
 static BOOL writePCM(NSData *pcm,NSURL *path,uint32_t rate,NSString **error){

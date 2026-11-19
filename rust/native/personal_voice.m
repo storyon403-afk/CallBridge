@@ -96,7 +96,7 @@
     if (self.busy || ![self allowed]) return;
     NSOpenPanel *panel=[NSOpenPanel openPanel];
     panel.allowedContentTypes=@[UTTypeWAV]; panel.allowsMultipleSelection=NO; panel.canChooseDirectories=NO;
-    [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+    [panel beginSheetModalForWindow:CBDialogWindow(self.window) completionHandler:^(NSModalResponse response) {
         if (response!=NSModalResponseOK || self.busy) return;
         self.sample=panel.URL;
         self.sampleLabel.stringValue=panel.URL.lastPathComponent;

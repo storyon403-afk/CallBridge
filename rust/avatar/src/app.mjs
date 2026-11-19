@@ -13,7 +13,8 @@ import {composition,BackgroundSource} from './background.mjs';
 import {FrameAvatar} from './frame-avatar.mjs';
 const $=id=>document.getElementById(id), gate=new Gate(),presence=new Presence();
 const effects=composition(window.callbridgeComposition),backgroundSource=new BackgroundSource(effects.background);
-const directCamera=effects.person==='none'&&effects.background==='original';
+const backgroundOnly=window.callbridgeComposition?.backgroundOnly===true;
+const directCamera=!backgroundOnly&&effects.person==='none'&&effects.background==='original';
 let headOffset=0,lastCameraFrame=-Infinity;
 const composite=now=>{
  replacement.draw(frameAvatar?frameAvatar.render(renderer.domElement.width,renderer.domElement.height,now,stats.mode==='fixture'):renderer.domElement,now,{...effects,source:backgroundSource,head:headOffset});
@@ -142,6 +143,7 @@ async function fixture(){
  return {...stats};
 }
 async function startCamera(){
+ if(backgroundOnly)return;
  stop();const epoch=gate.start();stats.mode='starting';$('camera').disabled=true;setStatus('准备跟踪资源…摄像头尚未开启');
  try{
   if(!directCamera)await ensureTracker();if(!gate.accepts(epoch))return;
@@ -199,7 +201,7 @@ $('stop').onclick=stop;$('demo').onclick=demoStart;$('camera').onclick=startCame
 $('send-video').onclick=()=>{
  if(!stats.ready)return;
  if(effects.background==='plate'&&!replacement.hasPlate){$('video-status').textContent='请先采集并确认空背景，再输出到通话';return;}
- if(effects.person==='none'&&effects.background==='original'&&!stats.camera){$('video-status').textContent='请先开启摄像头';return;}
+ if(!backgroundOnly&&effects.person==='none'&&effects.background==='original'&&!stats.camera){$('video-status').textContent='请先开启摄像头';return;}
  const epoch=gate.epoch;
  void backgroundSource.play().then(()=>{if(epoch===gate.epoch&&!document.hidden)return videoOutput.start();}).catch(e=>{if(epoch===gate.epoch)setStatus('背景播放失败：'+e.message);});
 };
@@ -213,7 +215,7 @@ async function load(){
  await backgroundSource.prepare();stats.composition=effects;
  // 不替换人物时不下载/解析 VRM；跟踪权重只在主动采集或测试时加载。
  if(effects.person==='none'){
-  stats.ready=true;for(const id of ['camera','fixture'])$(id).disabled=false;
+  stats.ready=true;for(const id of ['camera','fixture']){ $(id).disabled=backgroundOnly; $(id).hidden=backgroundOnly; }
   $('demo').textContent='预览背景';$('demo').disabled=false;void videoOutput.refresh();return;
  }
  const custom=window.callbridgeComposition?.character===true;

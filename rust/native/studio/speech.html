@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' cb-art:; base-uri 'none'; form-action 'none'">
+<title>CallBridge</title><link rel="stylesheet" href="studio.css"><link rel="stylesheet" href="controls.css"><link rel="stylesheet" href="board.css"><script src="studio.js" defer></script><script src="speech.js" defer></script></head>
+<body class="speech-window">
+<section id="speech" class="material-glass speech-page" aria-label="打字说话">
+<div class="speech-heading"><label class="draft-label" for="draft">想说的话</label><button data-action="pickVoice" aria-controls="voice-choices" aria-expanded="false" id="speech-voice" class="control-secondary"></button></div>
+<div id="voice-choices" class="filter-strip" hidden></div>
+<textarea id="draft" rows="2" spellcheck="false" placeholder="输入想说的话…"></textarea>
+<div class="speech-meter"><small>⌘↩ 发送 · ⌘. 停止</small><output id="length" for="draft">0 / 280</output></div>
+<div class="speech-actions"><button id="send-draft" data-action="sendDraft" class="control-primary" disabled>发送</button><button id="listen-draft" data-action="listenDraft" class="control-secondary" disabled>试听这段</button><button id="global-stop" class="control-secondary" data-action="stop" disabled>停止全部</button><button id="speech-arm" data-action="arm" class="control-secondary" aria-pressed="false" disabled>允许发送语音</button></div>
+<p id="route-state" role="status"></p>
+<details id="speech-settings"><summary>语音设置</summary><p id="speech-output"></p><div class="speech-tuning"><span id="monitor-label">本机试听</span><div id="speech-monitors" class="filter-strip" role="group" aria-labelledby="monitor-label"></div></div><div class="speech-tuning"><label for="speech-gain">人声音量</label><input id="speech-gain" type="range" min="0" max="100"><output id="speech-percent" for="speech-gain"></output></div>
+<div class="speech-actions"><button id="prepare-draft" class="control-secondary" data-action="prepareDraft" disabled>准备语音</button><button id="countdown-draft" class="control-secondary" data-action="countdownDraft" disabled>5 秒后播放</button></div></details></section>
+</body></html>

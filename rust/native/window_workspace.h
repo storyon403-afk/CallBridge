@@ -7,6 +7,9 @@ extern const NSSize CBWorkspaceDefaultSize;
 @property(nonatomic) BOOL panelsOnTop;
 @property(nonatomic) BOOL capsulesOnTop;
 @property(nonatomic) BOOL animationsEnabled;
+// 组合台接管业务页面的展示；独立诊断仍可使用原窗口工作区。
+@property(nonatomic,weak) NSWindow *studioWindow;
+@property(nonatomic,copy) void (^presentStudioPage)(NSWindow *page);
 - (void)registerWindow:(NSWindow *)window;
 - (void)showWindow:(NSWindow *)window from:(NSWindow *)source;
 - (BOOL)foldWindow:(NSWindow *)window;
@@ -29,7 +32,11 @@ extern const NSSize CBWorkspaceDefaultSize;
 @property(nonatomic) NSSize workspaceSize;
 @property(nonatomic) BOOL keepsCompactSize;
 @property(nonatomic) NSSize workspaceFoldSize;
+@property(nonatomic,strong) NSView *studioContent;
 - (void)workspaceOrderFront;
 @end
 void CBShowWindow(NSWindow *window, id sender);
 BOOL CBWorkspaceCheck(void);
+
+NSView *CBPageContent(NSWindow *page);
+NSWindow *CBDialogWindow(NSWindow *page);

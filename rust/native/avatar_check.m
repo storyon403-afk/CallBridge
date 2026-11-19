@@ -6,6 +6,7 @@
 #import "panel_ui.h"
 #import "window_workspace.h"
 #import "plugin_store.h"
+#import "localization.h"
 
 static void pump(void) {
     // WebKit 绘制依赖 AppKit 事件循环；只跑 NSRunLoop 会漏掉窗口可见性与提交事件。
@@ -76,7 +77,7 @@ int CBAvatarModelCheck(NSString *identifier) {
             NSRect frame=panel.window.frame;frame.size=size.sizeValue;[panel.window setFrame:frame display:YES];[panel.window.contentView layoutSubtreeIfNeeded];
             NSString *fits=@"(()=>{const ids=['camera','stop','demo','send-video','stop-video','refresh-video'];return document.visibilityState==='visible'&&document.querySelector('#output').width===1280&&document.querySelector('#output').height===720&&Math.abs(avatarLab.camera.aspect-16/9)<.0001&&document.querySelector('#stage').getBoundingClientRect().height>=24&&document.documentElement.scrollWidth<=innerWidth+1&&ids.every(id=>{const r=document.getElementById(id).getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight+1&&r.left>=0&&r.right<=innerWidth+1;});})()";
             BOOL visible=waitFor(panel,fits,8);BOOL outer=panel.webView.enclosingScrollView==nil;
-            for(NSView *row in @[[panel valueForKey:@"navigation"],[panel valueForKey:@"toolbar"],[panel valueForKey:@"effectsToolbar"]]){
+            for(NSView *row in @[[panel valueForKey:@"navigation"],[panel valueForKey:@"toolbar"]]){
                 if(row.hidden)continue;
                 NSRect r=[row convertRect:row.bounds toView:panel.window.contentView];outer&=NSContainsRect(panel.window.contentView.bounds,r);
             }
@@ -101,6 +102,10 @@ int CBAvatarModelCheck(NSString *identifier) {
     NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil];fwrite(data.bytes,1,data.length,stdout);fputc('\n',stdout);
     return failure||!cleanup?1:0;
 }
+static void selectStudioSlot(CBAvatarController *root,NSString *key,NSString *value) {
+    NSMutableDictionary *next=[root.composition mutableCopy];next[key]=value;
+    [root replaceStudioComposition:next];
+}
 int CBAvatarPanelCheck(void) {
     NSApplication *app=NSApplication.sharedApplication;
     [app setActivationPolicy:NSApplicationActivationPolicyRegular]; [app finishLaunching];
@@ -115,7 +120,7 @@ int CBAvatarPanelCheck(void) {
     CBAvatarPlugin *plugin=[[CBAvatarPlugin alloc] initWithManifest:[NSBundle.mainBundle.resourceURL URLByAppendingPathComponent:@"Avatar/plugin.lock.json"] root:isolated cache:original.root];
     [panel setValue:plugin forKey:@"plugin"];
     [panel present];
-    if(tiles(panel).count!=2||panel.webView||panel.running||plugin.busy)failure=@"分类页提前加载插件或缺少人物/背景模块";
+    if(![[tiles(panel) valueForKey:@"title"] containsObject:CBL(@"人物形象替换")]||![[tiles(panel) valueForKey:@"title"] containsObject:CBL(@"背景替换")]||panel.webView||panel.running||plugin.busy)failure=@"分类页提前加载插件或缺少人物/背景模块";
     else [checks addObject:@"人物与背景两个入口独立，不提前加载服务"];
     if(!failure) {
         [tiles(panel).firstObject performClick:nil];
@@ -129,25 +134,26 @@ int CBAvatarPanelCheck(void) {
         [(NSButton *)[panel valueForKey:@"backButton"] performClick:nil];
     }
     if(!failure) {
-        // 模拟上次已保存虚拟人物的情况；直接选择背景入口必须保留真人，素材选择仍保留。
+        // 模拟上次已保存虚拟人物的情况；打开背景目录和详情，以及返回，都不能写入已保存的组合。
         panel.composition=@{@"person":@"avatar",@"background":@"plate",@"path":@"/saved-background.mp4"};
         __block NSDictionary *saved=nil;panel.compositionChanged=^(NSDictionary *value){saved=value;};
         [tiles(panel)[1] performClick:nil];
-        if(![panel.composition[@"person"] isEqual:@"none"]||![saved isEqual:panel.composition]||
-           ![panel.composition[@"background"] isEqual:@"plate"]||![panel.composition[@"path"] isEqual:@"/saved-background.mp4"])
-            failure=@"直接选择背景沿用了旧角色，或丢失了背景设置";
+        NSDictionary *original=@{@"person":@"avatar",@"background":@"plate",@"path":@"/saved-background.mp4"};
+        [tiles(panel).firstObject performClick:nil];
+        [(NSButton *)[panel valueForKey:@"backButton"] performClick:nil];
+        if(saved||![original isEqual:panel.composition]) failure=@"浏览背景详情改动了当前组合";
         panel.compositionChanged=nil;
         [(NSButton *)[panel valueForKey:@"backButton"] performClick:nil];
-        if(!failure)[checks addObject:@"已保存虚拟人物时直接进入背景，关闭人物替换并保存，保留背景与素材引用"];
+        if(!failure)[checks addObject:@"进入背景目录、查看详情和返回均保留原组合"];
     }
     if(!failure) {
         [tiles(panel)[1] performClick:nil];[tiles(panel)[1] performClick:nil];[tiles(panel)[1] performClick:nil];
         [(NSButton *)[panel valueForKey:@"pairJump"] performClick:nil];
-        if(!chooseAvatar(panel)||![panel.composition[@"background"] isEqual:@"parallax"])failure=@"从背景跳转人物丢失背景选择";
+        if(!chooseAvatar(panel)||![panel.composition[@"background"] isEqual:@"plate"])failure=@"挑选搭配人物时提前改动了背景";
         [(NSButton *)[panel valueForKey:@"pairJump"] performClick:nil];[tiles(panel).firstObject performClick:nil];
         if(![panel.composition[@"person"] isEqual:@"avatar"])failure=@"主动组合人物与背景时丢失人物选择";
         [NSApp sendAction:NSSelectorFromString(@"declinePartner:") to:panel from:nil];
-        if(![panel.composition[@"person"] isEqual:@"none"]||![panel.composition[@"background"] isEqual:@"parallax"])failure=@"拒绝人物替换误清除了背景";
+        if(![panel.composition[@"person"] isEqual:@"none"]||![panel.composition[@"background"] isEqual:@"plate"])failure=@"拒绝人物替换误清除了背景";
         [(NSButton *)[panel valueForKey:@"pairJump"] performClick:nil];
         if(!chooseAvatar(panel))failure=@"组合快捷跳转不能返回人物详情";
         [NSApp sendAction:NSSelectorFromString(@"declinePartner:") to:panel from:nil];
@@ -245,19 +251,16 @@ int CBAvatarPanelCheck(void) {
         else [checks addObject:@"切换目标等待旧服务释放，一次操作恢复未发送预览"];
     }
     if(!failure) {
-        // 运行界面分别修改两个槽；切换背景不能覆盖已选择的人物，也不能恢复视频授权。
-        NSPopUpButton *background=[panel valueForKey:@"backgroundChoice"];
-        [background selectItemAtIndex:3];[NSApp sendAction:background.action to:background.target from:background];
+        // 从组合台的入口更新组合，预览只读取选定的两个槽。
+        selectStudioSlot(root,@"background",@"parallax");
         if(!waitFor(panel,@"Boolean(window.avatarLab?.stats.ready && avatarLab.effects.person==='avatar' && avatarLab.effects.background==='parallax' && !avatarLab.videoOutput.active)",60))failure=@"背景替换覆盖了人物选择或恢复了发送";
         else [checks addObject:@"虚拟角色＋程序化背景组合，不影响音频或恢复输出"];
     }
     if(!failure) {
-        NSPopUpButton *person=[panel valueForKey:@"personChoice"];
-        [person selectItemAtIndex:0];[NSApp sendAction:person.action to:person.target from:person];
+        selectStudioSlot(root,@"person",@"none");
         if(!waitFor(panel,@"Boolean(window.avatarLab?.stats.ready && !avatarLab.vrm && avatarLab.effects.person==='none' && avatarLab.effects.background==='parallax')",60))failure=@"只换背景时仍加载人物模型";
         else [checks addObject:@"保留真人只换背景，独立槽且不解析 VRM"];
-        NSPopUpButton *background=[panel valueForKey:@"backgroundChoice"];
-        [background selectItemAtIndex:2];[NSApp sendAction:background.action to:background.target from:background];
+        selectStudioSlot(root,@"background",@"sample");
         if(!waitFor(panel,@"Boolean(window.avatarLab?.stats.ready && avatarLab.backgroundSource.video?.muted && avatarLab.effects.background==='sample')",30)){
             failure=@"WebKit 背景素材加载或静音失败";
             detail=evaluate(panel,@"({error:avatarLab.backgroundSource.error,ready:avatarLab.backgroundSource.video?.readyState,network:avatarLab.backgroundSource.video?.networkState,status:document.querySelector('#status').textContent})");
@@ -271,23 +274,21 @@ int CBAvatarPanelCheck(void) {
         if(![evaluate(panel,@"avatarLab.backgroundSource.video.paused") boolValue])failure=@"停止没有暂停背景视频";
         NSMutableDictionary *value=[panel.composition mutableCopy];
         value[@"path"]=[NSBundle.mainBundle.resourceURL URLByAppendingPathComponent:@"Avatar/site/backgrounds/aurora.mp4"].path;
-        panel.composition=value;
-        NSPopUpButton *background=[panel valueForKey:@"backgroundChoice"];
-        [background selectItemAtIndex:4];[NSApp sendAction:background.action to:background.target from:background];
+        value[@"background"]=@"custom";[root replaceStudioComposition:value];
         if(!waitFor(panel,@"Boolean(window.avatarLab?.stats.ready && avatarLab.effects.background==='custom' && avatarLab.backgroundSource.video.muted)",30))failure=@"WebKit 用户素材专用路由失败";
         else [checks addObject:@"WebKit 视频推进/停止正常，用户素材固定路由可解码"];
     }
     if(!failure) {
-        // 完整重现：旧组合含角色，关闭重开后从首页只选静态背景，实际 WebKit 不得加载角色。
+        // 完整重现：旧组合含角色，关闭重开后从首页选静态背景应保留既有角色。
         NSMutableDictionary *value=[panel.composition mutableCopy];value[@"person"]=@"avatar";panel.composition=value;
         [panel.window performClose:nil];[root present];
         [tiles(panel)[1] performClick:nil];[tiles(panel).firstObject performClick:nil];
         NSDate *ready=[NSDate dateWithTimeIntervalSinceNow:20];
         while(([(NSButton *)[panel valueForKey:@"openButton"] isHidden]||![(NSButton *)[panel valueForKey:@"openButton"] isEnabled]||plugin.busy)&&ready.timeIntervalSinceNow>0)pump();
         [(NSButton *)[panel valueForKey:@"openButton"] performClick:nil];
-        if(!waitFor(panel,@"Boolean(window.avatarLab?.stats.ready && avatarLab.effects.person==='none' && avatarLab.effects.background==='plate' && !avatarLab.vrm && !avatarLab.stats.camera && !avatarLab.videoOutput.active)",60))
-            failure=@"只选背景仍出现虚拟人物或启动了采集/输出";
-        else [checks addObject:@"关闭重开后直接选择静态背景，WebKit 不加载 VRM，也不自动开启采集/输出"];
+        if(!waitFor(panel,@"Boolean(window.avatarLab?.stats.ready && avatarLab.effects.person==='avatar' && avatarLab.effects.background==='plate' && !!avatarLab.vrm && !avatarLab.stats.camera && !avatarLab.videoOutput.active)",60))
+            failure=@"应用静态背景未保留原人物或启动了采集/输出";
+        else [checks addObject:@"关闭重开后应用静态背景保留原人物，采集与输出仍关闭"];
     }
     if(!failure) {
         [(NSButton *)[panel valueForKey:@"backButton"] performClick:nil];
@@ -295,6 +296,7 @@ int CBAvatarPanelCheck(void) {
         [tiles(panel)[2] performClick:nil];
         if(![[panel valueForKey:@"detailTitle"] stringValue]||![[panel valueForKey:@"selectedBackground"] isEqual:@"original"])
             failure=@"真实背景入口未接入现场画面";
+        [NSApp sendAction:NSSelectorFromString(@"declinePartner:") to:panel from:nil];
         NSDate *ready=[NSDate dateWithTimeIntervalSinceNow:20];
         while(([(NSButton *)[panel valueForKey:@"openButton"] isHidden]||![(NSButton *)[panel valueForKey:@"openButton"] isEnabled]||plugin.busy)&&ready.timeIntervalSinceNow>0)pump();
         [(NSButton *)[panel valueForKey:@"openButton"] performClick:nil];
@@ -303,8 +305,7 @@ int CBAvatarPanelCheck(void) {
         else [checks addObject:@"真实背景动态化进入现场预览，不加载角色、不自动采集或输出"];
     }
     if(!failure) {
-        NSPopUpButton *person=[panel valueForKey:@"personChoice"];
-        [person selectItemAtIndex:1];[NSApp sendAction:person.action to:person.target from:person];
+        selectStudioSlot(root,@"person",@"avatar");
         if(!waitFor(panel,@"Boolean(window.avatarLab?.stats.ready && avatarLab.effects.person==='avatar' && avatarLab.effects.background==='original' && avatarLab.vrm && !avatarLab.stats.camera && document.querySelector('#capture-background').hidden && avatarLab.replacement.realtime)",60))
             {failure=@"实时背景不能与主动选择的虚拟角色组合";detail=evaluate(panel,@"({ready:avatarLab?.stats.ready,person:avatarLab?.effects.person,background:avatarLab?.effects.background,vrm:!!avatarLab?.vrm,camera:avatarLab?.stats.camera,hidden:document.querySelector('#capture-background')?.hidden,realtime:avatarLab?.replacement.realtime,status:document.querySelector('#status')?.textContent})");}
         else [checks addObject:@"现场背景可主动组合虚拟角色，保持原背景模式"];

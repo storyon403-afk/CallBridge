@@ -16,6 +16,7 @@ static NSHashTable<NSWindow *> *panelWindows;
 @interface CBPanelCanvas : NSView
 @property(nonatomic,strong) NSVisualEffectView *glass;
 @property(nonatomic) BOOL rounded;
+@property(nonatomic) BOOL floatingText;
 - (void)refreshMaterial;
 @end
 @implementation CBPanelCanvas
@@ -36,29 +37,62 @@ static NSHashTable<NSWindow *> *panelWindows;
 - (void)viewDidMoveToWindow { [super viewDidMoveToWindow];[self refreshMaterial]; }
 - (void)refreshMaterial {
     BOOL glass=panelTranslucent&&!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency;
-    self.glass.hidden=!glass;self.window.opaque=!(glass||self.rounded);
+    self.glass.hidden=self.floatingText || !glass;self.window.opaque=!(glass||self.rounded);
     self.window.backgroundColor=(glass||self.rounded)?NSColor.clearColor:CBWindowColor();
     self.needsDisplay=YES;
 }
 - (void)drawRect:(NSRect)dirty {
-    if(self.glass.hidden){[CBWindowColor() setFill];NSRectFill(dirty);}
+    if(self.floatingText && !NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency){
+        // 只给底板上色；透明像素直接透出后面的应用，文字和图标保持全不透明。
+        [[CBWindowColor() colorWithAlphaComponent:.34] setFill];
+        NSRectFillUsingOperation(dirty,NSCompositingOperationCopy);
+    }else if(self.glass.hidden){[CBWindowColor() setFill];NSRectFill(dirty);}
 }
 @end
 BOOL CBPanelTranslucent(void) { return panelTranslucent; }
 void CBRoundTextWindow(NSWindow *window) {
     // 完整内容覆盖标题栏后，四个角才能使用同一轮廓；透明角不能被窗口底色填回。
-    window.styleMask|=NSWindowStyleMaskFullSizeContentView;
-    window.movable=YES;
     CBPanelCanvas *canvas=(CBPanelCanvas *)window.contentView;
+    // 系统叉号留在独立标题栏，浮窗的透明内容和拖动区域只占标题栏以下。
+    if(!canvas.floatingText)window.styleMask|=NSWindowStyleMaskFullSizeContentView;
+    window.movable=YES;
     canvas.rounded=YES;canvas.wantsLayer=YES;
     canvas.layer.cornerRadius=24;canvas.layer.cornerCurve=kCACornerCurveContinuous;
     canvas.layer.masksToBounds=YES;
     [canvas refreshMaterial];
 }
+NSPanel *CBFloatingTextWindow(NSString *title, NSSize size, NSScreen *screen) {
+    NSPanel *panel=[[NSPanel alloc] initWithContentRect:(NSRect){NSZeroPoint,size}
+        styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable
+        backing:NSBackingStoreBuffered defer:NO];
+    panel.title=title;panel.floatingPanel=YES;panel.hidesOnDeactivate=NO;
+    panel.level=NSFloatingWindowLevel;panel.releasedWhenClosed=NO;panel.restorable=NO;
+    panel.collectionBehavior=NSWindowCollectionBehaviorMoveToActiveSpace|NSWindowCollectionBehaviorFullScreenAuxiliary;
+    panel.titlebarAppearsTransparent=YES;
+    CBPanelCanvas *canvas=[[CBPanelCanvas alloc] initWithFrame:panel.contentView.bounds];
+    canvas.floatingText=YES;panel.contentView=canvas;CBRoundTextWindow(panel);
+    NSButton *close=[NSButton buttonWithTitle:CBL(@"关闭") target:panel action:@selector(performClose:)];
+    close.bezelStyle=NSBezelStyleInline;
+    close.accessibilityLabel=CBL(@"关闭打字说话");
+    close.toolTip=[NSString stringWithFormat:@"%@ (⌘W)",close.accessibilityLabel];
+    close.keyEquivalent=@"w";close.keyEquivalentModifierMask=NSEventModifierFlagCommand;
+    [close sizeToFit];
+    NSTitlebarAccessoryViewController *accessory=[NSTitlebarAccessoryViewController new];
+    accessory.layoutAttribute=NSLayoutAttributeRight;
+    NSView *holder=[[NSView alloc] initWithFrame:NSMakeRect(0,0,NSWidth(close.frame)+12,MAX(22,NSHeight(close.frame)))];
+    [holder addSubview:close];
+    [close setFrameOrigin:NSMakePoint(0,floor((NSHeight(holder.frame)-NSHeight(close.frame))/2))];
+    accessory.view=holder;
+    [panel addTitlebarAccessoryViewController:accessory];
+    NSRect area=screen.visibleFrame;
+    size.width=MIN(size.width,NSWidth(area));
+    [panel setFrame:NSMakeRect(MAX(NSMinX(area),NSMaxX(area)-size.width-24),NSMinY(area)+24,size.width,size.height) display:NO];
+    return panel;
+}
 void CBSetPanelTranslucent(BOOL enabled) {
     panelTranslucent=enabled;
     for(NSWindow *window in panelWindows)
-        if([window.contentView isKindOfClass:CBPanelCanvas.class])[(CBPanelCanvas *)window.contentView refreshMaterial];
+        if([CBPageContent(window) isKindOfClass:CBPanelCanvas.class])[(CBPanelCanvas *)CBPageContent(window) refreshMaterial];
 }
 
 @implementation CBComposerEditor
@@ -149,7 +183,10 @@ void CBSetPanelTranslucent(BOOL enabled) {
 - (void)drawRect:(NSRect)dirty {
     (void)dirty;
     NSRect rect=NSMakeRect(8,4,self.bounds.size.width-16,NSMaxY(self.editorScroll.frame));
-    [[NSColor.controlBackgroundColor colorWithAlphaComponent:CBPanelTranslucent()?.45:1] setFill];
+    CGFloat alpha=CBPanelTranslucent()?.45:1;
+    if([self.window.contentView isKindOfClass:CBPanelCanvas.class] && ((CBPanelCanvas *)self.window.contentView).floatingText)
+        alpha=NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency?1:.22;
+    [[NSColor.controlBackgroundColor colorWithAlphaComponent:alpha] setFill];
     CGFloat radius=MIN(28,rect.size.height/2);
     [[NSBezierPath bezierPathWithRoundedRect:rect xRadius:radius yRadius:radius] fill];
 }
@@ -281,7 +318,7 @@ NSTextField *CBSection(NSString *title) {
 - (BOOL)isFlipped { return YES; }
 @end
 void CBInstallColumn(NSWindow *window, NSStackView *column, BOOL fillHeight) {
-    CBInstallColumnInView(window.contentView,column,fillHeight);
+    CBInstallColumnInView(CBPageContent(window),column,fillHeight);
 }
 void CBInstallColumnInView(NSView *host, NSStackView *column, BOOL fillHeight) {
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:host.bounds];

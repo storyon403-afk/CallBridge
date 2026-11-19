@@ -132,7 +132,7 @@ static NSView *group(NSArray<NSView *> *views){
     for(NSView *v in views)[v.widthAnchor constraintEqualToAnchor:self.column.widthAnchor].active=YES;
     for(NSView *v in self.footer.arrangedSubviews.copy){[self.footer removeArrangedSubview:v];[v removeFromSuperview];}
     for(NSView *v in actions)[self.footer addArrangedSubview:v];
-    self.status.stringValue=self.message?:status;self.back.hidden=self.history.count==0;self.heading.hidden=[self.page isEqual:@"home"];[self layout];[self.window.contentView layoutSubtreeIfNeeded];
+    self.status.stringValue=self.message?:status;self.back.hidden=self.history.count==0;self.heading.hidden=[self.page isEqual:@"home"];[self layout];[CBPageContent(self.window) layoutSubtreeIfNeeded];
 }
 - (void)presentFrom:(NSWindow *)parent {
     [CBWorkspace.shared showWindow:self.window from:parent];
@@ -145,7 +145,7 @@ static NSView *group(NSArray<NSView *> *views){
         c.message=error?[c errorText:error]:nil;[c render];}];
     [self render];
 }
-- (void)navigate:(NSString *)page{[self.window makeFirstResponder:nil];[self.history addObject:self.page];self.page=page;self.message=nil;[self render];}
+- (void)navigate:(NSString *)page{[CBDialogWindow(self.window) makeFirstResponder:nil];[self.history addObject:self.page];self.page=page;self.message=nil;[self render];}
 - (void)change:(NSControl *)control {
     NSString *value=[control isKindOfClass:NSPopUpButton.class]?[(NSPopUpButton *)control selectedItem].representedObject:control.stringValue;
     if(value.length>2000)value=[value substringToIndex:2000];self.config[control.identifier]=value?:@"";
@@ -253,13 +253,13 @@ static NSView *group(NSArray<NSView *> *views){
 - (void)act:(NSButton *)sender {
     NSString *command=sender.identifier;
     if([command hasPrefix:@"provider:"]){NSButton *choice=[NSButton new];choice.identifier=[command substringFromIndex:9];[self chooseProvider:choice];return;}
-    if([command isEqual:@"back"]){[self.window makeFirstResponder:nil];if(self.history.count){self.page=self.history.lastObject;[self.history removeLastObject];self.message=nil;[self render];}return;}
+    if([command isEqual:@"back"]){[CBDialogWindow(self.window) makeFirstResponder:nil];if(self.history.count){self.page=self.history.lastObject;[self.history removeLastObject];self.message=nil;[self render];}return;}
     if([command isEqual:@"refresh"]){[self loadCatalog];return;}
     if([command isEqual:@"audioOutput"]){if(self.openOutput)self.openOutput();return;}
     if([command isEqual:@"audio"]){if(self.openAudioPlugins)self.openAudioPlugins();return;}
     if([command isEqual:@"text"]){if(self.openText)self.openText();return;}
     if([command isEqual:@"official"]){NSURL *url=[NSURL URLWithString:self.provider[@"docs"]];if([url.scheme isEqual:@"https"])[NSWorkspace.sharedWorkspace openURL:url];return;}
-    if([command isEqual:@"validate"]){[self.window makeFirstResponder:nil];NSString *key=self.provider[@"id"];BOOL ids=YES;
+    if([command isEqual:@"validate"]){[CBDialogWindow(self.window) makeFirstResponder:nil];NSString *key=self.provider[@"id"];BOOL ids=YES;
         for(NSString *field in [key isEqual:@"liveavatar"]?@[@"avatarId"]:[key isEqual:@"tavus"]?@[@"faceId",@"palId"]:@[]){NSString *value=self.config[field]?:@"";NSRegularExpression *regex=[NSRegularExpression regularExpressionWithPattern:@"^[a-zA-Z0-9_-]{1,160}$" options:0 error:nil];ids&=[regex numberOfMatchesInString:value options:0 range:NSMakeRange(0,value.length)]==1;}
         self.message=![self.provider[@"configured"] boolValue]?CBL(@"凭证未配置"):!ids?CBL(@"请检查形象 ID"):CBL(@"本地检查通过，未连接云端");[self render];return;}
     if([@[@"personImage",@"garmentImage"] containsObject:command]){[self chooseImage:command];return;}
@@ -272,7 +272,7 @@ static NSView *group(NSArray<NSView *> *views){
 - (void)chooseImage:(NSString *)key {
     if(self.busy)return;NSOpenPanel *panel=[NSOpenPanel openPanel];panel.allowedContentTypes=@[UTTypePNG,UTTypeJPEG];panel.allowsMultipleSelection=NO;
     NSUInteger generation=self.generation;__weak CBServicePanel *weak=self;
-    [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response){CBServicePanel *c=weak;if(response!=NSModalResponseOK||!c||generation!=c.generation)return;c.imageLoading=YES;[c render];NSURL *url=panel.URL;
+    [panel beginSheetModalForWindow:CBDialogWindow(self.window) completionHandler:^(NSModalResponse response){CBServicePanel *c=weak;if(response!=NSModalResponseOK||!c||generation!=c.generation)return;c.imageLoading=YES;[c render];NSURL *url=panel.URL;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0), ^{
             NSNumber *size=nil;[url getResourceValue:&size forKey:NSURLFileSizeKey error:nil];NSFileHandle *file=size.unsignedLongLongValue>0&&size.unsignedLongLongValue<=180000?[NSFileHandle fileHandleForReadingFromURL:url error:nil]:nil;
             NSData *data=[file readDataUpToLength:180001 error:nil];[file closeAndReturnError:nil];
@@ -294,7 +294,7 @@ static NSView *group(NSArray<NSView *> *views){
     if(self.busy||self.remotePending||![self.provider[@"id"] isEqual:@"fashn"]||!self.personImage||!self.garmentImage)return;
     NSAlert *alert=[NSAlert new];alert.messageText=CBL(@"生成云端图片？");alert.informativeText=CBL(@"人物与服装图片将上传至 FASHN，按厂商额度计费。请确认有使用授权；关闭窗口无法取消远端任务。");
     [alert addButtonWithTitle:CBL(@"同意并生成")];[alert addButtonWithTitle:CBL(@"取消")];NSUInteger generation=self.generation;__weak CBServicePanel *weak=self;
-    [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response){CBServicePanel *c=weak;if(!c||generation!=c.generation||response!=NSAlertFirstButtonReturn)return;
+    [alert beginSheetModalForWindow:CBDialogWindow(self.window) completionHandler:^(NSModalResponse response){CBServicePanel *c=weak;if(!c||generation!=c.generation||response!=NSAlertFirstButtonReturn)return;
         NSDictionary *body=@{@"provider":@"fashn",@"params":@{@"personImage":c.personImage,@"garmentImage":c.garmentImage},@"maxSeconds":@120,@"consent":@{@"cloudProcessing":@YES,@"billing":@YES}};
         c.personImage=nil;c.garmentImage=nil;c.resultURL=nil;c.sessionID=nil;c.jobState=@"creating";c.remotePending=YES;[c navigate:@"job"];
         [c.client request:@"create" body:body session:nil completion:^(NSDictionary *result,NSString *error){[weak acceptJob:result error:error];}];[c render];

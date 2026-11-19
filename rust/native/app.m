@@ -30,6 +30,8 @@
 #import "theme.h"
 #import "panel_ui.h"
 #import "audio_panel.h"
+#import "call_board.h"
+#import "studio_host.h"
 #import "service_panel.h"
 #import "official_plugins.h"
 #import "window_workspace.h"
@@ -396,8 +398,11 @@ static int virtual_route_report(void) {
 @property(nonatomic,strong) CBAudioPanel *mixPanel;
 @property(nonatomic, strong) NSWindow *mixWindow;
 @property(nonatomic, strong) NSWindow *placeholderWindow;
-@property(nonatomic, strong) CBModuleGrid *moduleGrid;
-@property(nonatomic, strong) NSScrollView *moduleScroll;
+@property(nonatomic,strong) CBCallBoard *callBoard;
+@property(nonatomic,strong) CBStudioHost *studioHost;
+@property(nonatomic,copy) NSString *studioTab;
+@property(nonatomic) BOOL boardVideoDisconnected;
+@property(nonatomic,copy) NSDictionary *pendingVisualChange;
 @property(nonatomic, strong) NSTextField *activityLabel;
 @property(nonatomic) BOOL pendingTextToggle;
 @property(nonatomic, strong) NSTextView *editor;
@@ -504,6 +509,151 @@ static int virtual_route_report(void) {
 @end
 
 @implementation CallBridgeApp
+// 控件持有的稳定标识也用于组合台，刷新设备后不会把旧卡片索引错配给新设备。
+static NSString *CBBoardItemID(NSMenuItem *item) {
+    id value=item.representedObject;
+    if ([value isKindOfClass:CBVoiceDescriptor.class]) return [value identifier];
+    return [value isKindOfClass:NSString.class] ? value : nil;
+}
+- (NSDictionary *)boardOptions:(NSPopUpButton *)menu {
+    NSMutableArray *items=[NSMutableArray array];
+    for (NSMenuItem *item in menu.itemArray) {
+        NSString *identifier=CBBoardItemID(item);
+        if (!identifier || !item.enabled) continue;
+        [items addObject:@{@"id":identifier,@"name":item.title}];
+    }
+    return @{@"items":items,@"selected":CBBoardItemID(menu.selectedItem)?:@"",@"name":menu.titleOfSelectedItem?:@"",
+             @"enabled":@(menu.enabled)};
+}
+- (NSDictionary *)boardSnapshot {
+    NSDictionary *composition=self.avatarController.composition;
+    NSMutableArray *assets=[NSMutableArray array];
+    for (NSDictionary *plugin in CBLocalPlugins(nil)) {
+        if ([@[@"avatar",@"background-image",@"background-video",@"audio-background"] containsObject:plugin[@"kind"]])
+            [assets addObject:@{@"id":plugin[@"id"],@"name":plugin[@"name"],@"kind":plugin[@"kind"],@"format":[plugin[@"entry"] pathExtension].lowercaseString,@"version":plugin[@"version"]?:@"",
+                @"selected":@([self.settings[@"background_path"] isEqual:plugin[@"entry"]])}];
+    }
+    NSString *path=composition[@"path"]?:@"";
+    NSString *scene=composition[@"background"]?:@"original";
+    if ([@[@"custom",@"image"] containsObject:scene]) {
+        scene=composition[@"background_plugin"]?:path.lastPathComponent;
+    }
+    BOOL videoBusy=self.avatarController.busy;
+    NSString *mode=[composition[@"background_only"] boolValue]?@"none":[composition[@"person"] isEqual:@"avatar"]?@"avatar":@"real";
+    return @{@"language":CBUILanguage(),@"tab":self.studioTab?:@"mix",
+        @"speechVisible":@(self.textWindow.visible&&!self.textWindow.miniaturized),
+        @"ready":@(self.settingsReady),@"voice":[self boardOptions:self.voices],
+        @"audio":[self boardOptions:self.sendDevices],@"monitor":[self boardOptions:self.previewDevices],@"mic":[self boardOptions:self.microphoneDevices],
+        @"mode":mode,@"scene":scene,@"actor":composition[@"avatar_plugin"]?:@"cheng",@"assets":assets,
+        @"video":self.boardVideoDisconnected?@"":self.avatarController.target?:@"obs",@"videoBusy":@(videoBusy),
+        @"available":@(self.deviceAvailable),@"armed":@(self.armButton.state==NSControlStateValueOn),@"armOK":@(self.armButton.enabled && self.deviceAvailable),
+        @"file":self.backgroundFileLabel.stringValue,@"fileID":self.settings[@"background_path"]?:@"",
+        @"importOK":@(self.backgroundImportButton.enabled&&!self.pluginImportBusy),@"playing":@(self.backgroundEnabled),
+        @"playOK":@(self.backgroundToggleButton.enabled),@"pauseOK":@(self.backgroundPauseButton.enabled),@"paused":@(self.backgroundPaused),
+        @"loop":@(self.backgroundLoop),@"loopOK":@(self.backgroundLoopButton.enabled),@"gain":@(self.backgroundGain),@"gainOK":@(self.backgroundVolume.enabled),
+        @"micOn":@(self.environmentEnabled),@"micOK":@(self.environmentToggle.enabled),@"auditionOK":@(self.previewButton.enabled),
+        @"clean":@(self.speechOutputChoice.indexOfSelectedItem==0),@"cleanOK":@(self.speechOutputChoice.enabled),
+        @"glass":@(CBPanelTranslucent()),@"refreshOK":@(self.refreshButton.enabled),@"removeOK":@(self.backgroundClearButton.enabled),
+        @"stopOK":@(self.stopButton.enabled || self.armButton.state==NSControlStateValueOn || videoBusy),
+        @"status":self.status.stringValue?:@"",@"route":self.routeLabel.stringValue?:@""};
+}
+- (void)boardSelect:(NSString *)key value:(NSString *)value {
+    NSPopUpButton *menu=@{@"voice":self.voices,@"monitor":self.previewDevices,@"mic":self.microphoneDevices,@"audio":self.sendDevices}[key];
+    if (!menu.enabled) return;
+    for (NSMenuItem *item in menu.itemArray) {
+        if (!item.enabled || ![CBBoardItemID(item) isEqual:value] || item==menu.selectedItem) continue;
+        [menu selectItem:item];[NSApp sendAction:menu.action to:menu.target from:menu];return;
+    }
+}
+- (void)boardCommand:(NSString *)action value:(NSString *)value {
+    if ([action isEqual:@"text"]) { [self showText:nil];return; }
+    if ([action isEqual:@"closeText"]) { if(self.textWindow.visible)[self.textWindow performClose:nil];return; }
+    if ([action isEqual:@"tab"] && [@[@"mix",@"route"] containsObject:value]) { self.studioTab=value;return; }
+    if ([action isEqual:@"stop"]) { [self.avatarController shutdown];[self stop:nil];return; }
+    if (!self.settingsReady || self.terminating) return;
+    if ([@[@"voice",@"monitor",@"mic",@"audio"] containsObject:action]) {
+        // 断开当前插口是明确的停止指令；切换到另一设备仍需等待会话空闲。
+        if ([action isEqual:@"audio"] && !value.length && self.stopButton.enabled) [self stop:nil];
+        [self boardSelect:action value:value];return;
+    }
+    if ([action isEqual:@"arm"] && self.armButton.enabled && self.deviceAvailable) [self.armButton performClick:nil];
+    else if ([action isEqual:@"micOn"]) [self toggleEnvironment:self.callBoard];
+    else if ([action isEqual:@"play"]) [self toggleBackground:self.callBoard];
+    else if ([action isEqual:@"pause"]) [self toggleBackgroundPause:nil];
+    else if ([action isEqual:@"loop"]) [self toggleBackgroundLoop:nil];
+    else if ([action isEqual:@"clear"]) [self clearBackground:nil];
+    else if ([action isEqual:@"gain"] && self.backgroundVolume.enabled) {
+        self.backgroundVolume.doubleValue=MAX(0,MIN(1,value.doubleValue));[self backgroundVolumeChanged:self.backgroundVolume];
+    } else if ([action isEqual:@"clean"] && self.speechOutputChoice.enabled) {
+        [self.speechOutputChoice selectItemAtIndex:[value isEqual:@"clean"]?0:1];[self denoiseChanged:nil];
+    } else if ([action isEqual:@"audition"]) [self preview:nil];
+    else if ([action isEqual:@"refresh"] && self.refreshButton.enabled) [self refresh:nil];
+    else if ([action isEqual:@"wav"]) [self importBackground:self.callBoard];
+    else if ([action isEqual:@"plugin"] && self.backgroundImportButton.enabled && !self.pluginImportBusy) {
+        self.pluginImportBusy=YES;[self updateControls];
+        CBImportLocalPlugin(self.window,@[@"avatar",@"engine-avatar",@"background-image",@"background-video",@"audio-background",@"voice-zh",@"voice-en",@"audio-denoise",@"engine-zh",@"engine-en",@"engine-zh-encoder"],^(NSDictionary *plugin,NSString *error){
+            self.pluginImportBusy=NO;[self refreshPocket];[self updateControls];
+            if (error) self.status.stringValue=CBL(error);
+            else if (plugin) self.status.stringValue=CBL(@"插件已导入，请选择使用");
+        });
+    } else if ([action isEqual:@"track"] && self.backgroundImportButton.enabled && !self.pluginImportBusy) {
+        NSDictionary *plugin=CBLocalPluginNamed(value);
+        if ([plugin[@"kind"] isEqual:@"audio-background"]) {self.pluginImportBusy=YES;[self updateControls];[self loadBackgroundPlugin:plugin error:nil];}
+    } else if ([action isEqual:@"glass"]) {
+        [self.panelBackground selectItemAtIndex:CBPanelTranslucent()?0:1];[self panelBackgroundChanged:nil];
+    } else if ([action isEqual:@"cloud"]) [self showCloud:nil];
+    else if ([action isEqual:@"input"]) [self showTranscription:nil];
+    else if ([action isEqual:@"plugins"]) [self officialPlugins:nil];
+    else if ([action isEqual:@"mixTools"]) [self showMix:nil];
+    else if ([action isEqual:@"personal"]) [self showPersonal:nil];
+    else if ([action isEqual:@"audioTools"]) { [self showAudio:nil];[self.audioPanel showPage:@"plugins"]; }
+    else if ([action isEqual:@"visualTools"]) [self showVideo:nil];
+    else if ([action isEqual:@"runtime"] && !self.boardVideoDisconnected) {
+        NSDictionary *c=self.avatarController.composition;
+        if (![c[@"background_only"] boolValue] || ![@[@"original",@"plate"] containsObject:c[@"background"]]) [self.avatarController presentComposition];
+    }
+    else if ([action isEqual:@"video"] && (value.length==0 || [@[@"obs",@"callbridge"] containsObject:value])) {
+        [self.avatarController stopCompositionPreview];self.boardVideoDisconnected=!value.length;
+        if (value.length) {self.avatarController.target=value;[self rememberSetting:@"video_target" value:value];}
+    } else if ([@[@"mode",@"scene",@"actor"] containsObject:action]) {
+        NSMutableDictionary *comp=[(self.pendingVisualChange?:self.avatarController.composition) mutableCopy];
+        NSDictionary *plugin=CBLocalPluginNamed(value);
+        if ([action isEqual:@"mode"]) {
+            if (![@[@"avatar",@"none",@"real"] containsObject:value]) return;
+            comp[@"person"]=[value isEqual:@"avatar"]?@"avatar":@"none";
+            if ([value isEqual:@"none"]) comp[@"background_only"]=@YES;
+            else [comp removeObjectForKey:@"background_only"];
+        } else if ([action isEqual:@"actor"]) {
+            if ([value isEqual:@"cheng"]) [comp removeObjectForKey:@"avatar_plugin"];
+            else if ([plugin[@"kind"] isEqual:@"avatar"]) comp[@"avatar_plugin"]=value;
+            else return;
+            comp[@"person"]=@"avatar";[comp removeObjectForKey:@"background_only"];
+        } else {
+            [comp removeObjectForKey:@"background_plugin"];
+            [comp removeObjectForKey:@"studio_image"];
+            if ([@[@"original",@"parallax",@"sample",@"plate"] containsObject:value]) comp[@"background"]=value;
+            else if ([@[@"coast-evening.jpg",@"window-morning.jpg"] containsObject:value]) {
+                comp[@"background"]=@"image";comp[@"studio_image"]=value;
+                comp[@"path"]=[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:[@"Studio/media" stringByAppendingPathComponent:value]];
+            } else if ([@[@"background-image",@"background-video"] containsObject:plugin[@"kind"]?:@""]) {
+                comp[@"background"]=[plugin[@"kind"] isEqual:@"background-image"]?@"image":@"custom";
+                comp[@"path"]=plugin[@"entry"];comp[@"background_plugin"]=value;
+            } else return;
+        }
+        if ([comp isEqual:self.pendingVisualChange?:self.avatarController.composition]) return;
+        BOOL deciding=self.pendingVisualChange!=nil;
+        NSDictionary *original=self.avatarController.composition;
+        self.pendingVisualChange=comp;
+        if(deciding)return;
+        [self.avatarController allowStudioSwitchFrom:self.window completion:^(BOOL allowed){
+            NSDictionary *next=self.pendingVisualChange;self.pendingVisualChange=nil;
+            if(allowed&&!self.terminating&&[self.avatarController.composition isEqual:original]&&![next isEqual:original]){
+                [self.avatarController replaceStudioComposition:next];
+                [self rememberSetting:@"video_composition" value:next];
+            }
+        }];
+    }
+}
 - (void)saveSettings {
     if (self.uiSmoke || !self.settingsReady || self.terminating) return;
     NSDictionary *snapshot = self.settings;
@@ -546,8 +696,10 @@ static int virtual_route_report(void) {
     self.textComposer.expanded=expanded;
     // 允许拖过折叠阈值，松手后由工作区收成标签；默认长条 112 pt 高不会误触发。
     self.textWindow.minSize=NSMakeSize(180,expanded?96:64);
-    ((CBManagedWindow *)self.textWindow).workspaceFoldSize=NSMakeSize(252,expanded?168:112);
-    ((CBManagedWindow *)self.textWindow).workspaceSize=size;
+    if([self.textWindow isKindOfClass:CBManagedWindow.class]){
+        ((CBManagedWindow *)self.textWindow).workspaceFoldSize=NSMakeSize(252,expanded?168:112);
+        ((CBManagedWindow *)self.textWindow).workspaceSize=size;
+    }
     [self.textWindow setFrame:frame display:YES];
     [self.textWindow.contentView layoutSubtreeIfNeeded];
 }
@@ -557,7 +709,10 @@ static int virtual_route_report(void) {
     CBSetSpeechDenoise([self.settings[@"speech_denoise"] boolValue],[self.settings[@"denoise_strength"] floatValue]);
     [self.speechOutputChoice selectItemAtIndex:CBSpeechDenoiseEnabled()?0:1];
     self.avatarController.target=self.settings[@"video_target"];
-    self.avatarController.composition=self.settings[@"video_composition"];
+    NSMutableDictionary *restored=[self.settings[@"video_composition"] mutableCopy];
+    NSString *image=restored[@"studio_image"];
+    if (image) restored[@"path"]=[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:[@"Studio/media" stringByAppendingPathComponent:image]];
+    self.avatarController.composition=restored;
     self.backgroundGain = [self.settings[@"background_gain"] floatValue];
     self.environmentGain = [self.settings[@"environment_gain"] floatValue];
     self.backgroundLoop = [self.settings[@"background_loop"] boolValue];
@@ -579,7 +734,15 @@ static int virtual_route_report(void) {
     [self updateControls];
     dispatch_async(self.settingsQueue, ^{
         NSString *warning = nil;
-        NSDictionary *settings = CBReadSettings(CBSettingsURL(), &warning);
+        NSURL *url=CBSettingsURL();
+        NSDictionary *settings = CBReadSettings(url, &warning);
+        // 第一次打开先展示可直接调整的通话构图；旧配置以及失联的文件引用均按原样恢复。
+        if (!warning && ![NSFileManager.defaultManager fileExistsAtPath:url.path]) {
+            NSMutableDictionary *initial=[settings mutableCopy];
+            initial[@"panel_background"]=@"glass";
+            initial[@"video_composition"]=@{@"person":@"avatar",@"background":@"image",@"studio_image":@"coast-evening.jpg"};
+            settings=initial;
+        }
         // 兼容保留旧设置字段，但不再读取预设文件或恢复已退役的表达方案。
         NSString *backgroundPath = settings[@"background_path"];
         NSData *pcm = nil;
@@ -628,16 +791,20 @@ static int virtual_route_report(void) {
     [menu selectItem:menu.lastItem];
 }
 - (void)showMain:(id)sender {
+    self.studioTab=@"mix";
     CBShowWindow(self.window, sender);
 }
 - (void)showText:(id)sender {
-    CBShowWindow(self.textWindow, sender);
+    if(self.studioHost)[self.textWindow makeKeyAndOrderFront:sender];
+    else CBShowWindow(self.textWindow,sender);
     [self.textWindow makeFirstResponder:self.editor];
 }
 - (void)toggleText:(id)sender {
-    (void)sender;
     if (self.textWindow.visible && !self.textWindow.miniaturized) [self.textWindow performClose:nil];
-    else { [self.textWindow deminiaturize:nil]; [self showText:nil]; }
+    else {
+        if(self.textWindow.miniaturized)[self.textWindow deminiaturize:nil];
+        [self showText:sender];
+    }
 }
 - (void)showAudio:(id)sender {
     CBShowWindow(self.audioWindow, sender);
@@ -782,24 +949,19 @@ static int virtual_route_report(void) {
     [button bind:NSEnabledBinding toObject:self.stopButton withKeyPath:@"enabled" options:nil];
     return button;
 }
-- (void)windowDidResize:(NSNotification *)notification {
-    if (notification.object != self.window) return;
-    [self.window.contentView layoutSubtreeIfNeeded];
-    [self.moduleGrid fitWidth:self.moduleScroll.contentSize.width];
-}
 - (void)application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls {
     (void)application;
     for (NSURL *url in urls) {
         // 只允许一个固定窗口命令；URL 不能携带文字、设备或音频授权参数。
         if (![url.absoluteString isEqual:@"callbridge://text/toggle"]) continue;
-        if (self.textWindow == nil) self.pendingTextToggle = !self.pendingTextToggle;
+        if (self.callBoard == nil) self.pendingTextToggle = !self.pendingTextToggle;
         else [self toggleText:nil];
     }
 }
 - (BOOL)applicationShouldHandleReopen:(NSApplication *)application hasVisibleWindows:(BOOL)visible {
     (void)application;
-    (void)visible;
-    [self showMain:nil];
+    if (visible && self.studioHost) [(CBManagedWindow *)self.window workspaceOrderFront];
+    else [self showMain:nil];
     return NO;
 }
 - (void)updateControls {
@@ -925,7 +1087,7 @@ static int virtual_route_report(void) {
     NSString *sendUID = self.sendDevices.selectedItem.representedObject;
     int32_t status = cb_sender_available_for_uid(sendUID.UTF8String);
     self.deviceAvailable = status == 0;
-    self.status.stringValue = status == 0 ? CBL(@"待发送 · 不采集真实麦克风")
+    self.status.stringValue = !sendUID.length ? CBL(@"未连接") : status == 0 ? CBL(@"待发送 · 不采集真实麦克风")
                                           : sender_error(status);
     if (self.voices.numberOfItems == 0) self.status.stringValue = CBL(@"没有可用中英语音，请安装系统语音后刷新。");
     else if (self.voices.selectedItem.representedObject == nil) self.status.stringValue = CBL(@"上次音色不可用，已保留选择；请重新选择可用音色。");
@@ -998,8 +1160,8 @@ static int virtual_route_report(void) {
     self.environmentAlert = alert;
     self.status.stringValue = CBL(@"等待环境发送确认 · 尚未开启新的麦克风采集");
     [self updateControls];
-    [self showMix:nil];
-    [alert beginSheetModalForWindow:self.mixWindow completionHandler:^(NSModalResponse response) {
+    if (sender!=self.callBoard) [self showMix:nil];
+    [alert beginSheetModalForWindow:CBDialogWindow(sender==self.callBoard?self.window:self.mixWindow) completionHandler:^(NSModalResponse response) {
         if (!self.requestingMicrophone || self.environmentRequest != request) return;
         self.environmentAlert = nil;
         if (response != NSAlertFirstButtonReturn) {
@@ -1103,7 +1265,7 @@ static int virtual_route_report(void) {
     [self rememberSetting:@"send_uid" value:uid];
     int32_t status = cb_sender_available_for_uid(uid.UTF8String);
     self.deviceAvailable = status == 0;
-    self.status.stringValue = status == 0 ? CBL(@"目标已选择 · 请让通话软件使用同名输入，再勾选允许发送。") : sender_error(status);
+    self.status.stringValue = !uid.length ? CBL(@"未连接") : status == 0 ? CBL(@"目标已选择 · 请让通话软件使用同名输入，再勾选允许发送。") : sender_error(status);
     [self updateControls];
 }
 - (void)pocketAction:(id)sender {
@@ -1502,7 +1664,6 @@ static int virtual_route_report(void) {
 - (void)openTextFromStatus:(id)sender {
     (void)sender;
     [NSApp activateIgnoringOtherApps:YES];
-    [self.textWindow deminiaturize:nil];
     [self showText:nil];
 }
 - (void)buildStatusItem {
@@ -1546,6 +1707,7 @@ static int virtual_route_report(void) {
     [menu insertItem:[[NSMenuItem alloc] initWithTitle:CBL(@"官方插件") action:@selector(officialPlugins:) keyEquivalent:@""] atIndex:7];[menu itemAtIndex:7].target=self;
     [menu addItem:NSMenuItem.separatorItem];
     [self.appUpdater addItemsToMenu:menu];
+    if (self.studioHost) [menu removeItem:capsules];
     self.statusItem.menu = menu;
 }
 // 语言菜单使用语言自身名称，切换后用户仍能识别；仅保存偏好，不重建运行面板。
@@ -1658,8 +1820,8 @@ static int virtual_route_report(void) {
     panel.allowsMultipleSelection = NO;
     panel.resolvesAliases = NO;
     panel.message = CBL(@"选择不超过 30 秒 / 32 MiB 的 PCM WAV；导入不播放，不开启麦克风。");
-    [self showMix:nil];
-    [panel beginSheetModalForWindow:self.mixWindow completionHandler:^(NSModalResponse response) {
+    if (sender!=self.callBoard) [self showMix:nil];
+    [panel beginSheetModalForWindow:CBDialogWindow(sender==self.callBoard?self.window:self.mixWindow) completionHandler:^(NSModalResponse response) {
         if (response != NSModalResponseOK) { self.loadingBackground = NO; [self updateControls]; return; }
         NSURL *url = panel.URL;
         self.status.stringValue = CBL(@"正在准备背景音…");
@@ -1713,8 +1875,8 @@ static int virtual_route_report(void) {
     [self updateControls];
     // 冒烟检查只走待批准状态与拒绝路径，不呈现交互确认窗，更不会打开音频设备。
     if (self.uiSmoke) return;
-    [self showMix:nil];
-    [alert beginSheetModalForWindow:self.mixWindow completionHandler:^(NSModalResponse response) {
+    if (sender!=self.callBoard) [self showMix:nil];
+    [alert beginSheetModalForWindow:CBDialogWindow(sender==self.callBoard?self.window:self.mixWindow) completionHandler:^(NSModalResponse response) {
         [self completeBackgroundRequest:request target:targetUID granted:response == NSAlertFirstButtonReturn];
     }];
 }
@@ -1813,12 +1975,21 @@ static int virtual_route_report(void) {
     (void)sender;
     if (!self.routeHelpButton.enabled) return;
     [self showAudio:nil];
-    [[self connectionGuide] beginSheetModalForWindow:self.audioWindow completionHandler:nil];
+    [[self connectionGuide] beginSheetModalForWindow:CBDialogWindow(self.audioWindow) completionHandler:nil];
 }
 // UI 诊断只操作本进程窗口和内存设置，不合成、不保存偏好、不启动任何媒体 IO。
 - (BOOL)checkTextComposer {
     NSString *draft=[self.editor.string copy];NSRange selection=self.editor.selectedRange;
     NSUndoManager *undo=self.editor.undoManager;BOOL ok=!self.textComposer.expanded;
+    // performClick 会绕过鼠标命中测试；用正式浮窗检查透明底板是否盖住系统叉号。
+    NSPanel *floating=CBFloatingTextWindow(@"",CBTextDefaultSize,NSScreen.mainScreen);
+    [floating displayIfNeeded];
+    NSButton *cross=[floating standardWindowButton:NSWindowCloseButton];
+    NSView *frameView=floating.contentView.superview;
+    NSPoint center=NSMakePoint(NSMidX(cross.bounds),NSMidY(cross.bounds));
+    NSView *hit=[frameView hitTest:[cross convertPoint:center toView:frameView.superview]];
+    ok &= hit==cross || [hit isDescendantOf:cross];
+    [floating close];
     [CBWorkspace.shared showWindow:self.textWindow from:nil];
     const NSSize sizes[]={{320,112},{560,112},{720,200}};
     for(NSUInteger i=0;i<3;i++){
@@ -1905,23 +2076,29 @@ static int virtual_route_report(void) {
     self.activityLabel.textColor = CBSecondaryColor();
     self.window = CBUtilityWindow(CBL(@"CallBridge 主面板"),
         CBPanelDefaultSize, CBPanelMinimumSize, NO);
-    self.textWindow = CBUtilityWindow(CBL(@"文字输入"), CBTextDefaultSize, CBTextMinimumSize, YES);
-    CBRoundTextWindow(self.textWindow);
     self.compactTextSize=NSMakeSize(560,112);self.expandedTextSize=NSMakeSize(560,360);
-    ((CBManagedWindow *)self.textWindow).workspaceSize=self.compactTextSize;
-    ((CBManagedWindow *)self.textWindow).keepsCompactSize=YES;
-    ((CBManagedWindow *)self.textWindow).workspaceFoldSize=NSMakeSize(252,112);
+    if (self.uiSmoke) {
+        self.textWindow = CBUtilityWindow(CBL(@"文字输入"), CBTextDefaultSize, CBTextMinimumSize, YES);
+        CBRoundTextWindow(self.textWindow);
+        ((CBManagedWindow *)self.textWindow).workspaceSize=self.compactTextSize;
+        ((CBManagedWindow *)self.textWindow).keepsCompactSize=YES;
+        ((CBManagedWindow *)self.textWindow).workspaceFoldSize=NSMakeSize(252,112);
+        [self.textWindow setFrame:(NSRect){NSZeroPoint,self.compactTextSize} display:NO];
+    } else {
+        self.textWindow=CBFloatingTextWindow(CBL(@"打字说话"),self.compactTextSize,self.window.screen?:NSScreen.mainScreen);
+    }
     self.textWindow.minSize=NSMakeSize(180,64);
-    [self.textWindow setFrame:NSMakeRect(0,0,560,112) display:NO];
+    self.textWindow.delegate=self;
     self.audioWindow = CBUtilityWindow(CBL(@"音频模拟"), CBAudioSize, CBAudioSize, NO);
     self.mixWindow = CBUtilityWindow(CBL(@"混音设置"), CBMixSize, CBMixSize, NO);
     self.avatarController=[[CBAvatarController alloc] initWithMemoryCheck:NO];
     __weak CallBridgeApp *cloudOwner=self;self.avatarController.openCloud=^{[cloudOwner showCloud:nil];};
     __weak CallBridgeApp *weakVideoOwner=self;
-    self.avatarController.targetChanged=^(NSString *target) { [weakVideoOwner rememberSetting:@"video_target" value:target]; };
+    self.avatarController.targetChanged=^(NSString *target) { weakVideoOwner.boardVideoDisconnected=NO;[weakVideoOwner rememberSetting:@"video_target" value:target]; };
     self.avatarController.compositionChanged=^(NSDictionary *composition) { [weakVideoOwner rememberSetting:@"video_composition" value:composition]; };
 
-    for (NSWindow *window in @[self.window, self.textWindow, self.audioWindow, self.mixWindow]) window.delegate = self;
+    NSArray *panelWindows=self.uiSmoke?@[self.window,self.textWindow,self.audioWindow,self.mixWindow]:@[self.window,self.audioWindow,self.mixWindow];
+    for (NSWindow *window in panelWindows) window.delegate=self;
     self.pinButton = [NSButton checkboxWithTitle:CBL(@"面板置顶") target:self action:@selector(pinChanged:)];
     self.pinButton.state = NSControlStateValueOff;
     [self.pinButton bind:NSValueBinding toObject:CBWorkspace.shared withKeyPath:@"panelsOnTop" options:nil];
@@ -1951,6 +2128,8 @@ static int virtual_route_report(void) {
         [self.sendDevices addItemWithTitle:[NSString stringWithFormat:@"BlackHole %@ch", channels]];
         self.sendDevices.lastItem.representedObject = [NSString stringWithFormat:@"BlackHole%@ch_UID", channels];
     }
+    [self.sendDevices addItemWithTitle:CBL(@"未连接")];
+    self.sendDevices.lastItem.representedObject=@"";
     self.sendDevices.target = self;
     self.sendDevices.action = @selector(sendDeviceChanged:);
     self.sendDevices.toolTip = CBL(@"只改变 CallBridge 发送目标，不改变微信或系统输入；两端需要同名版本。未安装时禁止发送，不自动回退。");
@@ -2108,41 +2287,40 @@ static int virtual_route_report(void) {
         @"environmentToggle":self.environmentToggle,@"environmentGainLabel":self.environmentVolumeLabel,@"environmentGain":self.environmentVolume,
         @"official":[NSButton buttonWithTitle:CBL(@"官方插件") target:self action:@selector(officialBackgroundPlugins:)],@"microphones":self.microphoneDevices,@"pluginImport":[NSButton buttonWithTitle:CBL(@"导入本地插件…") target:self action:@selector(importBackgroundPlugin:)],
         @"text":[NSButton buttonWithTitle:CBL(@"文字输入") target:self action:@selector(showText:)],@"stop":[self stopMirror],@"status":[self statusMirror]}];
-    self.moduleGrid = [[CBModuleGrid alloc] initWithFrame:NSZeroRect];
-    self.moduleGrid.tiles = @[
-        CBModuleTile(CBL(@"音频模拟"), CBL(@"音色 · 引擎 · 通话输出"), @"waveform", self, @selector(showAudio:)),
-        CBModuleTile(CBL(@"混音设置"), CBL(@"文件背景 · 真实环境"), @"slider.horizontal.3", self, @selector(showMix:)),
-        CBModuleTile(CBL(@"画面处理"), CBL(@"形象插件"), @"person.crop.rectangle", self, @selector(showVideo:)),
-        CBModuleTile(CBL(@"声音转录"), CBL(@"变声 · 可选转文字"), @"mic", self, @selector(showTranscription:))
-    ];
-    self.moduleScroll = [[NSScrollView alloc] init];
-    self.moduleScroll.drawsBackground = NO;
-    self.moduleScroll.hasVerticalScroller = YES;
-    self.moduleScroll.autohidesScrollers = YES;
-    self.moduleScroll.toolTip = CBL(@"窗口较小时上下滚动，或用 Tab 访问其余模块；“窗口”菜单也可打开设置。");
-    self.moduleScroll.accessibilityLabel = CBL(@"功能模块，可上下滚动查看全部四项");
-    self.moduleScroll.documentView = self.moduleGrid;
     self.panelBackground=[[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [self.panelBackground addItemsWithTitles:@[CBL(@"实色背景"),CBL(@"半透明背景")]];
     self.panelBackground.accessibilityLabel=CBL(@"面板背景");
     self.panelBackground.toolTip=CBL(@"切换所有面板的背景，自动保存；跟随系统深浅外观。");
     self.panelBackground.target=self;self.panelBackground.action=@selector(panelBackgroundChanged:);
-    NSStackView *mainHeader = CBRow(@[[NSButton buttonWithTitle:CBL(@"文字 ↗") target:self action:@selector(showText:)],self.panelBackground]);
-    NSStackView *mainFooter = CBRow(@[self.activityLabel, [self stopMirror]]);
-    CBInstallColumn(self.window, CBColumn(@[mainHeader, self.moduleScroll, mainFooter]), YES);
-    [self.moduleScroll.heightAnchor constraintGreaterThanOrEqualToConstant:CBTileHeight].active = YES;
-    [self.moduleScroll setContentHuggingPriority:1 forOrientation:NSLayoutConstraintOrientationVertical];
+    __weak CallBridgeApp *boardOwner=self;
+    self.callBoard=[[CBCallBoard alloc] initWithSnapshot:^NSDictionary *{return [boardOwner boardSnapshot];}
+        command:^(NSString *key, NSString *value){[boardOwner boardCommand:key value:value];}];
+    NSView *host=self.window.contentView;
+    self.callBoard.view.frame=host.bounds;
+    self.callBoard.view.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
+    [host addSubview:self.callBoard.view];
+    NSRect screen=NSScreen.mainScreen.visibleFrame;
+    NSSize boardSize=NSMakeSize(MIN(1140,screen.size.width),MIN(800,screen.size.height));
+    ((CBManagedWindow *)self.window).workspaceSize=boardSize;
+    [self.window setFrame:NSMakeRect(0,0,boardSize.width,boardSize.height) display:NO];
+    [self.window center];
+    if (!self.uiSmoke) {
+        self.window.minSize=NSMakeSize(520,395);
+        self.studioHost=[[CBStudioHost alloc] initWithWindow:self.window board:self.callBoard.view home:^{[boardOwner showMain:nil];}
+            speech:^{[boardOwner showText:nil];} stop:^{[boardOwner boardCommand:@"stop" value:@""];}];
+        CBWorkspace.shared.studioWindow=self.window;
+        CBWorkspace.shared.presentStudioPage=^(NSWindow *page){[boardOwner.studioHost present:page];};
+    }
     [self refresh:nil];
     if (self.uiSmoke) self.settingsReady = YES;
     else [self restoreSettings];
     [self.window.contentView layoutSubtreeIfNeeded];
-    [self.moduleGrid fitWidth:self.moduleScroll.contentSize.width];
     [self refreshPocket];
     if (self.pendingTextToggle) { self.pendingTextToggle = NO; [self showText:nil]; }
     else [self showMain:nil];
     [self buildStatusItem];
     __weak CallBridgeApp *workspaceOwner=self;
-    for(NSWindow *window in @[self.window,self.textWindow,self.audioWindow,self.mixWindow]) {
+    for(NSWindow *window in panelWindows) {
         [CBWorkspace.shared setWindow:window canFold:nil activity:^BOOL{CallBridgeApp *owner=workspaceOwner;return owner&&(owner->_session.state!=0||owner->_sender!=NULL||CBPocketBusy()||CBEnglishBusy());} stop:^{CBPocketCancelInstall();CBEnglishCancelInstall();[workspaceOwner stop:nil];}];
     }
     [NSApp activateIgnoringOtherApps:YES];
@@ -2160,7 +2338,8 @@ static int virtual_route_report(void) {
             for(NSUInteger i=0;i<windows.count;i++){
                 NSWindow *window=windows[i];window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];[CBWorkspace.shared showWindow:window from:nil];
                 [window.contentView layoutSubtreeIfNeeded];
-                good&=fabs(window.frame.size.width-(window==self.textWindow?560:400))<1&&fabs(window.frame.size.height-360)<1;
+                NSSize expectedSize=window==self.window?boardSize:NSMakeSize(window==self.textWindow?560:400,360);
+                good&=NSEqualSizes(window.frame.size,expectedSize);
                 good&=CBSaveWindowImage(window,[NSString stringWithFormat:@"ui-%@-%@.png",CBUILanguage(),names[i]],YES);
                 [frames addObject:@{@"panel":names[i],@"width":@(window.frame.size.width),@"height":@(window.frame.size.height)}];
             }
@@ -2199,7 +2378,6 @@ static int virtual_route_report(void) {
                 self.environmentToggle, self.microphoneDevices, self.environmentVolume, self.environmentVolumeLabel];
             NSMutableArray *sizes = [NSMutableArray array];
             const NSSize cases[] = {CBPanelMinimumSize, CBPanelDefaultSize, {1044, 258}, {280, 730}};
-            const NSUInteger expectedColumns[] = {1, 2, 4, 1};
             self.editor.string = @"你好，这是 CallBridge。\n输入下一句话，不必对着麦克风说话。";
             [self showText:nil];
             [self showAudio:nil];
@@ -2207,12 +2385,7 @@ static int virtual_route_report(void) {
             for (NSUInteger index = 0; index < 4; ++index) {
                 [self.window setContentSize:cases[index]];
                 [self.window.contentView layoutSubtreeIfNeeded];
-                [self.moduleGrid fitWidth:self.moduleScroll.contentSize.width];
-                fits &= self.moduleGrid.columns == expectedColumns[index];
-                for (NSView *tile in self.moduleGrid.tiles) {
-                    fits &= NSContainsRect(self.moduleGrid.bounds, tile.frame) && tile.frame.size.width >= CBTileWidth - 16;
-                }
-                fits &= CBViewAccessible(mainFooter);
+                fits &= NSEqualSizes(self.callBoard.view.bounds.size,self.window.contentView.bounds.size);
                 [self.textWindow setContentSize:index == 0 ? CBTextMinimumSize : CBTextDefaultSize];
                 for (NSWindow *window in @[self.textWindow, self.audioWindow, self.mixWindow])
                     [window.contentView layoutSubtreeIfNeeded];
@@ -2231,20 +2404,7 @@ static int virtual_route_report(void) {
             fits &= [self.audioPanel checkLayout];
             fits &= [self.mixPanel checkLayout];[self.mixPanel showPage:@"home"];
             [self.audioPanel showPage:@"home"];
-            [self.moduleGrid.tiles.lastObject scrollRectToVisible:self.moduleGrid.tiles.lastObject.bounds];
-            BOOL modulesAccessible = NSIntersectsRect(self.moduleScroll.documentVisibleRect, self.moduleGrid.tiles.lastObject.frame)
-                && self.moduleGrid.tiles.count == 4;
-            // 扫描断点附近的宽度，避免只在三个“漂亮尺寸”上成立。
-            for (NSUInteger width = 280; width <= 1140; width += 37) {
-                [self.window setContentSize:NSMakeSize(width, CBPanelDefaultSize.height)];
-                [self.window.contentView layoutSubtreeIfNeeded];
-                [self.moduleGrid fitWidth:self.moduleScroll.contentSize.width];
-                for (NSView *tile in self.moduleGrid.tiles) {
-                    modulesAccessible &= NSContainsRect(self.moduleGrid.bounds, tile.frame);
-                    for (NSView *other in self.moduleGrid.tiles)
-                        if (tile != other) modulesAccessible &= !NSIntersectsRect(tile.frame, other.frame);
-                }
-            }
+            BOOL modulesAccessible = [self.callBoard checkLayout];
             snapshots &= CBSaveWindowImage(self.textWindow, @"ui-text.png", self.uiCapture)
                 && CBSaveWindowImage(self.audioWindow, @"ui-audio.png", self.uiCapture) && CBSaveWindowImage(self.mixWindow, @"ui-mix.png", self.uiCapture);
             // 只构建个人面板，不调用 present 的磁盘检查，更不导入样本或推理。
@@ -2258,7 +2418,6 @@ static int virtual_route_report(void) {
                 window.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
             [self.window setContentSize:CBPanelDefaultSize];
             [self.window.contentView layoutSubtreeIfNeeded];
-            [self.moduleGrid fitWidth:self.moduleScroll.contentSize.width];
             snapshots &= CBSaveWindowImage(self.window, @"ui-dark.png", self.uiCapture)
                 && CBSaveWindowImage(self.textWindow, @"ui-text-dark.png", self.uiCapture);
             for (NSWindow *window in @[self.window, self.textWindow, self.audioWindow, self.mixWindow]) window.appearance = nil;
@@ -2280,11 +2439,11 @@ static int virtual_route_report(void) {
             self.status.stringValue = @"设备清理失败，已禁止继续发送。请退出程序；不会自动切换到真实麦克风。";
             [self.textWindow setContentSize:CBTextMinimumSize];
             [self.textWindow.contentView layoutSubtreeIfNeeded];
-            for (NSView *view in stack.arrangedSubviews) {
+            for (NSView *view in self.layout.arrangedSubviews) {
                 if (!CBViewAccessible(view)) fits = NO;
             }
             BOOL previewSafe = !self.previewButton.enabled && self.previewDevices.selectedItem.representedObject == nil;
-            BOOL targetSafe = self.sendDevices.numberOfItems == 3
+            BOOL targetSafe = self.sendDevices.numberOfItems == 4 && [self.sendDevices.lastItem.representedObject isEqual:@""]
                 && [self.sendDevices.selectedItem.representedObject isEqual:@"CallBridgeLink_UID"]
                 && self.armButton.state == NSControlStateValueOff && !self.sendButton.enabled;
             NSArray *expectedTargets = @[@"CallBridgeLink_UID", @"BlackHole16ch_UID", @"BlackHole2ch_UID"];
@@ -2452,6 +2611,14 @@ static int virtual_route_report(void) {
             NSMutableData *samePCM=self.preparedPCM;
             preparedSafe &= cb_session_prepared(&self->_session,self->_session.generation)==0;
             [self updateControls];[self showPreparedStatus];
+            // 用真实组合台命令切人物，核对待发 PCM、草稿与会话代次。
+            NSUInteger generationBeforeVisualChange=self->_session.generation;
+            [self boardCommand:@"mode" value:@"real"];
+            [self boardCommand:@"actor" value:@"cheng"];
+            BOOL actorKeepsSpeech=[self.avatarController.composition[@"person"] isEqual:@"avatar"] &&
+                self->_session.generation==generationBeforeVisualChange && self->_session.state==3 &&
+                self.preparedPCM==samePCM && [self.editor.string isEqual:@"待发验证"];
+            preparedSafe &= actorKeepsSpeech;
             for(NSView *view in @[self.draftPreviewButton,self.prepareButton,self.countdownButton,self.stopButton,self.status])preparedSafe&=CBViewAccessible(view);
             NSRect preparedFrame=self.textWindow.frame;preparedFrame.size=NSMakeSize(400,360);[self.textWindow setFrame:preparedFrame display:YES];[self.textWindow.contentView layoutSubtreeIfNeeded];
             for(NSView *view in @[self.draftPreviewButton,self.prepareButton,self.countdownButton,self.stopButton,self.status])preparedSafe&=NSContainsRect(self.textWindow.contentView.bounds,[view convertRect:view.bounds toView:self.textWindow.contentView]);
@@ -2519,6 +2686,12 @@ static int virtual_route_report(void) {
             self.armButton.state = NSControlStateValueOn;
             self.environmentEnabled = YES;
             [self updateControls];
+            [self boardCommand:@"mode" value:@"real"];
+            [self boardCommand:@"actor" value:@"cheng"];
+            BOOL actorKeepsActiveSpeech=[self.avatarController.composition[@"person"] isEqual:@"avatar"] &&
+                self->_session.state==2 && self->_session.generation==speechGeneration &&
+                self.armButton.state==NSControlStateValueOn && self.environmentEnabled;
+            environmentSafe &= actorKeepsActiveSpeech;
             environmentSafe &= self.environmentVolume.enabled
                 && !self.previewButton.enabled && !self.microphoneDevices.enabled && [self.armButton.title containsString:@"真实环境"];
             [self.environmentToggle performClick:nil];
@@ -2613,6 +2786,8 @@ static int virtual_route_report(void) {
                 @"visual_acceptance": self.uiCapture ? @"own_window_screenshots_require_review" : @"manual_required_offscreen_images_omit_system_controls",
                 @"preview_requires_selection_and_excludes_send": @(previewSafe),
                 @"preview_completion_closes_with_background_settings": @(previewCompletionSafe),
+                @"switch_avatar_preserves_active_speech":@(actorKeepsActiveSpeech),
+                @"switch_avatar_preserves_prepared_speech":@(actorKeepsSpeech),
                 @"prepared_preview_reuses_pcm_and_cancels_safely": @(preparedSafe),
                 @"call_completion_keeps_background_and_environment": @(continuousCompletionSafe),
                 @"responsive_modules_accessible": @(modulesAccessible),
@@ -2629,7 +2804,14 @@ static int virtual_route_report(void) {
         });
     }
 }
+- (void)windowDidMiniaturize:(NSNotification *)note {
+    if (note.object==self.window && self.studioHost) [self.avatarController shutdown];
+}
 - (BOOL)windowShouldClose:(NSWindow *)window {
+    if (window==self.window && self.studioHost) {
+        [self.avatarController shutdown];if(!self.textWindow.visible)[self stop:nil];[self.cloudPanel stop];[self.transcriptionPanel stop];
+        [self.personalController cancel];CBStopOfficialPlugins();return YES;
+    }
     // 关闭主面板不会打断仍可见的文字窗；关闭文字窗则总停止，防止隐藏后继续采集。
     if (window == self.textWindow || (window == self.window && ![CBWorkspace.shared isAvailable:self.textWindow])) [self stop:nil];
     if (window == self.mixWindow && self.requestingMicrophone) [self cancelEnvironmentRequest];
@@ -2686,6 +2868,7 @@ static int virtual_route_report(void) {
     [self.avatarController shutdown];
     [NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
     [NSNotificationCenter.defaultCenter removeObserver:self];
+    [self.callBoard invalidate];
     [self.cloudPanel shutdown];[self.transcriptionPanel shutdown];
     CBStopOfficialPlugins();
     if (self.statusItem) [NSStatusBar.systemStatusBar removeStatusItem:self.statusItem];
