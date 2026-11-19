@@ -15,6 +15,7 @@ public partial class App : Application
     internal VisualSelection Visuals { get; } = new();
     internal bool Exiting;
     private System.Windows.Forms.NotifyIcon? _tray;
+    private System.Drawing.Icon? _trayIcon;
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -27,7 +28,11 @@ public partial class App : Application
         SystemEvents.PowerModeChanged += OnPower;
         SystemEvents.SessionSwitch += OnSession;
         MainPanel = new MainWindow(this);
-        _tray = new System.Windows.Forms.NotifyIcon { Icon = System.Drawing.SystemIcons.Application, Text = "CallBridge", Visible = true };
+        // 从应用资源加载同一品牌图标；托盘重建时仍需要持有它。
+        using (var stream = GetResourceStream(new Uri("pack://application:,,,/CallBridge.ico")).Stream)
+        using (var source = new System.Drawing.Icon(stream, System.Windows.Forms.SystemInformation.SmallIconSize))
+            _trayIcon = (System.Drawing.Icon)source.Clone();
+        _tray = new System.Windows.Forms.NotifyIcon { Icon = _trayIcon, Text = "CallBridge", Visible = true };
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(() => Workspace.Show("main"));
         var trayMenu = new System.Windows.Forms.ContextMenuStrip();
         trayMenu.Items.Add("打开主面板", null, (_, _) => Dispatcher.Invoke(() => Workspace.Show("main")));
@@ -105,6 +110,7 @@ public partial class App : Application
     {
         Theme.Stop();
         _tray?.Dispose();
+        _trayIcon?.Dispose();
         SystemEvents.PowerModeChanged -= OnPower;
         SystemEvents.SessionSwitch -= OnSession;
         base.OnExit(e);

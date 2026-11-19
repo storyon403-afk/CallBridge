@@ -7,6 +7,7 @@
   <SolidColorBrush x:Key="PrimaryInkBrush" Color="White"/><SolidColorBrush x:Key="FocusBrush" Color="#396BB2"/>
   <Style x:Key="FocusRing"><Setter Property="Control.Template"><Setter.Value><ControlTemplate><Rectangle Margin="2" RadiusX="6" RadiusY="6" Stroke="{DynamicResource FocusBrush}" StrokeThickness="2"/></ControlTemplate></Setter.Value></Setter></Style>
   <Style TargetType="Window">
+    <Setter Property="Icon" Value="pack://application:,,,/CallBridge.ico"/>
     <Setter Property="FontFamily" Value="Segoe UI, Microsoft YaHei UI"/><Setter Property="FontSize" Value="13"/>
     <Setter Property="Background" Value="{DynamicResource ShellBrush}"/><Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
     <Setter Property="UseLayoutRounding" Value="True"/><Setter Property="SnapsToDevicePixels" Value="True"/>
@@ -18,7 +19,7 @@
           <Grid Margin="10,0,8,0"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <Button Content="×" Width="24" MinHeight="22" Padding="0" Background="Transparent" Command="{x:Static local:PanelCommands.Close}" CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}" shell:WindowChrome.IsHitTestVisibleInChrome="True" ToolTip="关闭" AutomationProperties.Name="关闭"/>
             <Button Grid.Column="1" Content="−" Width="24" MinHeight="22" Padding="0" Background="Transparent" Command="{x:Static local:PanelCommands.Fold}" CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}" shell:WindowChrome.IsHitTestVisibleInChrome="True" ToolTip="收起为顶部标签" AutomationProperties.Name="收起"/>
-            <TextBlock Grid.Column="2" Text="{TemplateBinding Title}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+            <DockPanel Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center"><Image Source="{TemplateBinding Icon}" Width="16" Height="16" Margin="0,0,5,0"/><TextBlock Text="{TemplateBinding Title}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/></DockPanel>
             <Button Grid.Column="3" Content="⋯" Width="24" MinHeight="22" Padding="0" Background="Transparent" Command="{x:Static local:PanelCommands.Menu}" CommandTarget="{Binding RelativeSource={RelativeSource TemplatedParent}}" shell:WindowChrome.IsHitTestVisibleInChrome="True" ToolTip="窗口菜单"/>
           </Grid>
           <AdornerDecorator Grid.Row="1"><ContentPresenter/></AdornerDecorator>
