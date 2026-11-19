@@ -692,3 +692,14 @@
 "更多服务" = "More services";
 
 "请选择 ≤180 KB、≤4096×4096 的 PNG/JPEG" = "Choose PNG/JPEG ≤180 KB and ≤4096×4096";
+"未连接" = "Disconnected";
+"接受自包含 VRM（最多 64 MiB）或 CBFA v1 二维帧角色（最多 16 MiB）。纹理必须内嵌，禁止远程地址和脚本。需要画面引擎。" = "Accepts self-contained VRM files (up to 64 MiB) and CBFA v1 2D frame characters (up to 16 MiB). Textures must be embedded. Remote URLs and scripts are prohibited. Requires the visual engine.";
+
+"打字说话" = "Type to speak";
+
+"组合台" = "Studio";
+
+"暂停视频输出并切换画面？" = "Pause video output and switch?";
+"打字说话会继续。切换后，可在画面预览中重新发送视频。" = "Type to speak will continue. You can resume sending video from the preview.";
+"暂停视频并切换" = "Pause video and switch";
+"关闭打字说话" = "Close type to speak";

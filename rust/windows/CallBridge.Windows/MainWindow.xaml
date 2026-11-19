@@ -1,13 +1,80 @@
-<Window x:Class="CallBridge.Windows.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Style="{StaticResource {x:Type Window}}" Title="CallBridge 主面板" Width="400" Height="360" MinWidth="180" MinHeight="96">
-  <DockPanel Margin="16,4,16,10">
-    <Grid DockPanel.Dock="Top" Margin="0,0,0,12"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <Button Content="文字 ↗" Click="OpenText" HorizontalAlignment="Left"/>
-      <ComboBox Grid.Column="1" x:Name="Material" MinWidth="128" Margin="0" SelectionChanged="MaterialChanged" AutomationProperties.Name="面板背景"><ComboBoxItem Content="实色背景"/><ComboBoxItem Content="半透明背景"/></ComboBox>
-    </Grid>
-    <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <TextBlock x:Name="Status" Style="{StaticResource Caption}" Text="未采集麦克风" MaxHeight="30" VerticalAlignment="Center"/>
-      <Button Grid.Column="1" Click="StopAll" Width="32" ToolTip="停止全部" AutomationProperties.Name="停止全部"><Rectangle Width="10" Height="10" RadiusX="2" RadiusY="2" Fill="{DynamicResource InkBrush}"/></Button>
-    </Grid>
-    <ScrollViewer VerticalScrollBarVisibility="Auto"><ContentControl x:Name="Modules"/></ScrollViewer>
+<Window x:Class="CallBridge.Windows.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Style="{StaticResource {x:Type Window}}" Title="CallBridge · 我的通话组合"
+    Width="980" Height="700" MinWidth="320" MinHeight="310">
+  <Window.Resources>
+    <Style x:Key="SectionHeading" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="18"/><Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Margin" Value="0,0,0,10"/>
+    </Style>
+    <Style TargetType="TabItem">
+      <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+      <Setter Property="Template"><Setter.Value>
+        <ControlTemplate TargetType="TabItem">
+          <Border x:Name="Tab" Padding="18,8" Margin="0,0,6,0" CornerRadius="7" Background="{DynamicResource RaisedBrush}">
+            <ContentPresenter ContentSource="Header"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsSelected" Value="True"><Setter TargetName="Tab" Property="Background" Value="{DynamicResource PrimaryBrush}"/><Setter Property="Foreground" Value="{DynamicResource PrimaryInkBrush}"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value></Setter>
+    </Style>
+  </Window.Resources>
+  <DockPanel Margin="18,8,18,12">
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,14">
+      <Button DockPanel.Dock="Right" Content="打字说话" Click="OpenText" Padding="16,8"/>
+      <TextBlock Text="我的通话组合" FontSize="24" FontWeight="SemiBold" VerticalAlignment="Center"/>
+    </DockPanel>
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
+      <Button DockPanel.Dock="Right" Content="停止全部" Click="StopAll"/>
+      <TextBlock x:Name="Status" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0" AutomationProperties.LiveSetting="Polite"/>
+    </DockPanel>
+    <TabControl x:Name="Views" Background="Transparent" Foreground="{DynamicResource InkBrush}" BorderThickness="0" Padding="0,12,0,0">
+      <TabItem Header="组合台">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <Grid x:Name="Board" SizeChanged="BoardResized">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="3*"/><ColumnDefinition Width="2*"/></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Border Style="{StaticResource Card}" VerticalAlignment="Top">
+              <StackPanel>
+                <TextBlock Text="构图预览" Style="{StaticResource SectionHeading}"/>
+                <Grid Height="224" ClipToBounds="True" Background="{DynamicResource RaisedBrush}">
+                  <Image x:Name="Backdrop" Stretch="UniformToFill"/>
+                  <Image x:Name="Portrait" Stretch="Uniform" HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                </Grid>
+                <TextBlock x:Name="Composition" FontSize="16" FontWeight="SemiBold" Margin="0,10,0,6"/>
+                <WrapPanel>
+                  <Button Content="形象" Click="SelectAvatar" Margin="0,0,6,6"/>
+                  <Button Content="真人" Click="SelectCamera" Margin="0,0,6,6"/>
+                  <Button Content="纯背景" Click="SelectBackdropOnly" Margin="0,0,6,6"/>
+                  <Button x:Name="OpenPreview" Content="打开画面预览" Click="Preview" Margin="0,0,0,6"/>
+                </WrapPanel>
+                <Separator Margin="0,8"/>
+                <TextBlock Text="当前组合" Style="{StaticResource SectionHeading}"/>
+                <ContentControl x:Name="Slots"/>
+              </StackPanel>
+            </Border>
+            <Border x:Name="Library" Grid.Column="1" Style="{StaticResource Card}" VerticalAlignment="Top" Margin="10,0,0,0">
+              <StackPanel>
+                <TextBlock Text="素材库" Style="{StaticResource SectionHeading}"/>
+                <WrapPanel x:Name="Swatches"/>
+                <ContentControl x:Name="LibraryActions"/>
+              </StackPanel>
+            </Border>
+          </Grid>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="接线台">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel>
+            <TextBlock Text="通话接线" Style="{StaticResource SectionHeading}"/>
+            <ContentControl x:Name="Routing"/>
+            <CheckBox x:Name="Material" Content="半透明背景" Click="MaterialChanged" Margin="2,8"/>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
   </DockPanel>
 </Window>

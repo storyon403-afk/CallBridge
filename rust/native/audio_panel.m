@@ -1,3 +1,4 @@
+#import "window_workspace.h"
 /* 本文件的目的：为音频与混音提供统一的“概要 → 详情”视图，替代一整列杂乱控件。
  * 只安排视图、读取已存在的控件状态；所有下载、试听和停止仍调用 app.m 的原 action。
  * 底部操作独立于滚动内容，长说明与资源名不能撑大默认窗口。 */
@@ -132,7 +133,7 @@ static NSView *card(NSArray<NSView *> *views) {
     [self showPage:@"home"];return self;
 }
 - (void)layout {
-    NSRect b=self.window.contentView.bounds;CGFloat header=[self.currentPage isEqual:@"home"]?0:32;
+    NSRect b=CBPageContent(self.window).bounds;CGFloat header=[self.currentPage isEqual:@"home"]?0:32;
     self.navigation.frame=NSMakeRect(16,MAX(0,b.size.height-36),MAX(0,b.size.width-32),32);
     for(NSView *page in self.pages.allValues)page.frame=NSMakeRect(0,80,b.size.width,MAX(1,b.size.height-80-header));
 }
@@ -140,7 +141,7 @@ static NSView *card(NSArray<NSView *> *views) {
     if(!self.pages[page])return;self.currentPage=page;
     self.navigation.hidden=[page isEqual:@"home"];self.heading.stringValue=self.pageTitles[page]?:@"";
     for(NSString *key in self.pages)self.pages[key].hidden=![key isEqual:page];
-    [self layout];[self.window.contentView layoutSubtreeIfNeeded];
+    [self layout];[CBPageContent(self.window) layoutSubtreeIfNeeded];
 }
 - (void)navigate:(NSButton *)button { [self showPage:button.identifier]; }
 - (void)showPageContainingView:(NSView *)view {
@@ -161,8 +162,8 @@ static NSView *card(NSArray<NSView *> *views) {
             NSScrollView *scroll=self.pages[key].subviews.firstObject;
             if([key isEqual:@"home"]){BOOL fits=scroll.documentView.frame.size.height<=scroll.contentSize.height+1;ok&=fits;if(!fits)fprintf(stderr,"audio home overflow width=%g document=%g viewport=%g\n",width.doubleValue,scroll.documentView.frame.size.height,scroll.contentSize.height);}
             for(NSView *v in self.footer.arrangedSubviews)ok&=CBViewAccessible(v);
-            ok&=NSContainsRect(self.window.contentView.bounds,self.footer.frame);
-            ok&=fabs(NSMaxX(self.footer.frame)-(self.window.contentView.bounds.size.width-16))<1;
+            ok&=NSContainsRect(CBPageContent(self.window).bounds,self.footer.frame);
+            ok&=fabs(NSMaxX(self.footer.frame)-(CBPageContent(self.window).bounds.size.width-16))<1;
             CBSaveWindowImage(self.window,[NSString stringWithFormat:@"ui-%@-%@-%@.png",self.mixing?@"mix":@"audio",key,width],NO);
         }
     }[self.window setFrame:original display:NO];[self showPage:previous];return ok;

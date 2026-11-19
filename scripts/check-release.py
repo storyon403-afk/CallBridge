@@ -121,6 +121,10 @@ def main():
                     'Contents/Resources/Licenses/THIRD_PARTY_LICENSES.txt', 'Contents/Resources/Licenses/NODE-LICENSE',
                     'Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle',
                     'Contents/Resources/Licenses/SPARKLE-LICENSE'}
+        required.update('Contents/Resources/Studio/' + path for path in (
+            'index.html', 'studio.js', 'board.js', 'studio-portrait.js', 'studio.css', 'board.css',
+            'controls.css', 'media/cheng.png', 'media/coast-evening.jpg', 'media/window-morning.jpg',
+            'media/aurora.mp4', 'media/app-icon.png'))
         assert required <= entries.keys(), 'Missing App runtime or licenses'
         cloud_required = {'Contents/Resources/Cloud/providers.json', 'Contents/Resources/Cloud/api.md',
                           'Contents/Resources/Cloud/README.md',

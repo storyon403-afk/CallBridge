@@ -39,13 +39,16 @@ internal sealed class Navigation
     internal void Dismiss(string id) { Entries[id].Open = false; Entries[id].Visible = false; }
 }
 
-internal sealed record VisualSnapshot(string Person, string Background, string? CharacterPath, string? BackgroundPath);
+internal sealed record VisualSnapshot(string Person, string Background, string? CharacterPath, string? BackgroundPath, bool BackgroundOnly = false);
 internal sealed class VisualSelection
 {
     internal string Person = "none", Background = "original";
+    internal bool BackgroundOnly { get; private set; }
     internal string? CharacterPath, BackgroundPath;
-    internal void EnterBackgrounds(bool pairing) { if (!pairing) Person = "none"; }
-    internal void SelectPerson(string? path) { Person = "avatar"; CharacterPath = path; }
+    internal void EnterBackgrounds(bool pairing) { if (!pairing) SelectCamera(); }
+    internal void SelectPerson(string? path) { Person = "avatar"; CharacterPath = path; BackgroundOnly = false; }
+    internal void SelectCamera() { Person = "none"; BackgroundOnly = false; }
+    internal void SelectBackdropOnly() { Person = "none"; BackgroundOnly = true; }
     internal void SelectBackground(string kind, string? path = null)
     {
         if (!new[] { "original", "plate", "sample", "parallax", "custom", "image" }.Contains(kind)) throw new ArgumentException("未知背景");
@@ -57,6 +60,6 @@ internal sealed class VisualSelection
         }
         Background = kind; BackgroundPath = kind is "custom" or "image" ? path : null;
     }
-    internal void DeclinePartner(bool backgroundDetail) { if (backgroundDetail) Person = "none"; else { Background = "original"; BackgroundPath = null; } }
-    internal VisualSnapshot Snapshot() => new(Person, Background, Person == "avatar" ? CharacterPath : null, BackgroundPath);
+    internal void DeclinePartner(bool backgroundDetail) { if (backgroundDetail) SelectCamera(); else { Background = "original"; BackgroundPath = null; } }
+    internal VisualSnapshot Snapshot() => new(Person, Background, Person == "avatar" ? CharacterPath : null, BackgroundPath, BackgroundOnly);
 }

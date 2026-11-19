@@ -50,7 +50,7 @@ NSDictionary *CBNormalizeSettings(id value) {
     // 字段允许单独失效；不能让一个坏音量覆盖其他有效选择。
     for (NSString *key in @[@"voice_id", @"preview_uid", @"microphone_uid"])
         if (text_value(value[key], 1024)) result[key] = value[key];
-    if ([@[@"CallBridgeLink_UID", @"BlackHole2ch_UID", @"BlackHole16ch_UID"] containsObject:value[@"send_uid"]])
+    if ([@[@"", @"CallBridgeLink_UID", @"BlackHole2ch_UID", @"BlackHole16ch_UID"] containsObject:value[@"send_uid"]])
         result[@"send_uid"] = value[@"send_uid"];
     // 视频只恢复设备选择，不存储上次相机轨道、空背景或发送授权。
     if ([@[@"obs",@"callbridge"] containsObject:value[@"video_target"]]) result[@"video_target"]=value[@"video_target"];
@@ -62,6 +62,9 @@ NSDictionary *CBNormalizeSettings(id value) {
         if([@[@"original",@"plate",@"sample",@"parallax",@"custom",@"image"] containsObject:composition[@"background"]])accepted[@"background"]=composition[@"background"];
         if(local_path(composition[@"path"]))accepted[@"path"]=composition[@"path"];
         for(NSString *key in @[@"avatar_plugin",@"background_plugin"])if(text_value(composition[key],100)&&[composition[key] length]>0)accepted[key]=composition[key];
+        if ([accepted[@"person"] isEqual:@"none"] && number_value(composition[@"background_only"],1,1)) accepted[@"background_only"]=@YES;
+        if ([accepted[@"background"] isEqual:@"image"] && !accepted[@"background_plugin"] &&
+            [@[@"coast-evening.jpg",@"window-morning.jpg"] containsObject:composition[@"studio_image"]]) accepted[@"studio_image"]=composition[@"studio_image"];
         result[@"video_composition"]=accepted;
     }
     if (number_value(value[@"prosody_mode"], 0, 5)

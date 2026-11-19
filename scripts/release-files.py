@@ -4,7 +4,9 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-ROOT_FILES = {'CB', 'CBT', 'CB.ps1', 'CBT.ps1', '.gitignore', 'LICENSE', 'NOTICE', 'LICENSING.md',
+STUDIO_FILES = {'prototypes/call-workspace/' + name for name in (
+    'studio.css', 'controls.css', 'media/coast-evening.jpg', 'media/window-morning.jpg')}
+ROOT_FILES = STUDIO_FILES | {'CB', 'CBT', 'CB.ps1', 'CBT.ps1', '.gitignore', 'LICENSE', 'NOTICE', 'LICENSING.md',
               'README.md', 'README.en.md', 'README.zh-CN.md', 'GETTING_STARTED.md',
               'SECURITY.md', 'RELEASING.md', 'THIRD_PARTY_NOTICES.md', 'schedule.md', 'graph.md', '插件接入教程.md'}
 PREFIXES = ('rust/src/', 'rust/native/', 'rust/include/', 'rust/tests/', 'rust/examples/', 'rust/scripts/',

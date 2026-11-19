@@ -1,10 +1,10 @@
 # Windows 11 x64
 
-Windows 桌面迁移使用 WPF + WebView2，保留 Rust 音频/会话核心和现有 Cheng · Call Outfit 画面模块。0.0.4 提供 Windows 11 x64 便携测试包和构建源码；macOS 安装包不能用于 Windows。
+Windows 桌面迁移使用 WPF + WebView2，保留 Rust 音频/会话核心和现有 Cheng · Call Outfit 画面模块。0.0.5 提供 Windows 11 x64 便携包和构建源码；macOS 安装包不能用于 Windows。
 
 ## 便携发行包
 
-直接运行请看 [Windows 便携包说明](PORTABLE.md)。`CallBridge-0.0.4-windows-x64-icons1.zip` 已包含 Windows 程序、Rust DLL、.NET、Node 与视频适配运行时，完整解压后运行 `Test-Windows.cmd`，再打开 `CallBridge.exe`。0.0.4 已在 Windows 11 x64 上验证系统语音、虚拟线发送与停止、OBS 视频输出和独立 Mac WebRTC 对端接收。
+直接运行请看 [Windows 便携包说明](PORTABLE.md)。`CallBridge-0.0.5-windows-x64.zip` 已包含 Windows 程序、Rust DLL、.NET、Node 与视频适配运行时，完整解压后运行 `Test-Windows.cmd`，再打开 `CallBridge.exe`。0.0.4 已在 Windows 11 x64 上验证系统语音、虚拟线发送与停止、OBS 视频输出和独立 Mac WebRTC 对端接收。
 
 维护者可用 `sh rust/scripts/build-windows-cross.sh` 复用 `rust/build/toolchains/` 中的 .NET 10.0.403、Rust 1.97.1（含 Windows gnullvm 目标）和 LLVM-MinGW 20261020，在 Apple Silicon Mac 上重新组装。运行时归档由 `release/windows-runtime.json` 固定；传入 `--restore` 才会下载缺失归档。
 
@@ -12,7 +12,7 @@ Windows 桌面迁移使用 WPF + WebView2，保留 Rust 音频/会话核心和�
 
 | 功能 | Windows 源码状态 |
 | --- | --- |
-| 主面板、文字、音频模拟、混音、画面处理 | 标准面板 400×360；文字默认宽 560，紧凑态按两行内容确定高度，展开为 560×420；文字窗直接显示发送设备 |
+| 主面板、文字、音频模拟、混音、画面处理 | 组合台默认 980×700，随桌面缩放，窄窗将素材库移到预览下方；工具面板 400×360；文字默认宽 560，紧凑态按两行内容确定高度，展开为 560×420；文字窗直接显示发送设备 |
 | 收起标签、返回父页、独立置顶、托盘 | 已接入；视觉目录逐层单实例，运行画面保持展开；多屏自动避让/过渡动画待适配 |
 | 系统 TTS、准备语音、5 秒倒计时、独立设备试听、发送、停止、音量 | 已接入 System.Speech → Rust → 指定 WASAPI 端点 |
 | 文件背景混音 | 可导入最多 30 秒素材，随文字发送混入；可循环；配置下次发送生效 |
@@ -65,7 +65,7 @@ Windows 版已实现音视频桌面主流程，**尚未与 macOS 完整功能对
 
 个人设置和 WebView2 数据位于 `%LOCALAPPDATA%\CallBridge\`。输出状态、发送授权、准备 PCM 不持久化。相机不接触音频输入。
 
-界面对照清单见 [Windows UI 验收](UI-ACCEPTANCE.md)。当前源码将声音转录标记为 Windows 暂不支持；云服务仅提供离线说明。音频插件与个人音色入口禁用，环境音采集显示平台限制。画面处理可直接进入“澄 · 通话装”详情或导入 VRM；浏览与选择仍不会启动采集或发送。这些修复包含在 0.0.4 测试包中；请按清单在 Windows 上回归。
+界面对照清单见 [Windows UI 验收](UI-ACCEPTANCE.md)。当前源码将声音转录标记为 Windows 暂不支持；云服务仅提供离线说明。音频插件与个人音色入口禁用，环境音采集显示平台限制。画面处理可直接进入“澄 · 通话装”详情或导入 VRM；浏览与选择仍不会启动采集或发送。请按清单在 Windows 上回归新版组合台及独立工具窗口。
 
 ## 构建检查与设备要求
 

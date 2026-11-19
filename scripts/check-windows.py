@@ -81,6 +81,7 @@ def main():
                   'camera/libunwind.dll','camera/python/python.exe','camera/python/MSVCP140.dll',
                   'avatar/index.html','avatar/app.js','avatar-host/server.mjs','avatar-host/cloud/service.mjs',
                   'Test-Windows.cmd','camera/check_bridge.mjs','README.md','licenses/LLVM-MINGW-LICENSE.TXT',
+                  'studio/cheng.png','studio/coast-evening.jpg','studio/window-morning.jpg',
                   'UI-ACCEPTANCE.md','avatar/preview.jpg','cloud-guides/api.md','cloud-guides/decart.md']
         assert all(p in payload for p in required)
         system={'kernel32.dll','ntdll.dll','advapi32.dll','crypt32.dll','iphlpapi.dll','oleaut32.dll','propsys.dll',

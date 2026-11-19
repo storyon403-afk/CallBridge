@@ -149,10 +149,21 @@ const NSSize CBWorkspaceDefaultSize={400,360};
     [menu addItemWithTitle:CBL(@"关闭") action:@selector(close:) keyEquivalent:@""].target=self.entry;return menu;
 }
 @end
+NSView *CBPageContent(NSWindow *page) {
+    if ([page isKindOfClass:CBManagedWindow.class] && ((CBManagedWindow *)page).studioContent)
+        return ((CBManagedWindow *)page).studioContent;
+    return page.contentView;
+}
+NSWindow *CBDialogWindow(NSWindow *page) {
+    return CBWorkspace.shared.studioWindow ?: page;
+}
 @implementation CBManagedWindow
-- (void)makeKeyAndOrderFront:(id)sender { (void)sender;[[CBWorkspace shared] showWindow:self from:nil]; }
+- (void)makeKeyAndOrderFront:(id)sender {
+    if (self==CBWorkspace.shared.studioWindow) [super makeKeyAndOrderFront:sender];
+    else [CBWorkspace.shared showWindow:self from:nil];
+}
 - (void)workspaceOrderFront { [super makeKeyAndOrderFront:nil]; }
-- (void)miniaturize:(id)sender { (void)sender;[[CBWorkspace shared] foldWindow:self]; }
+- (void)miniaturize:(id)sender { if (self==CBWorkspace.shared.studioWindow) [super miniaturize:sender]; else [[CBWorkspace shared] foldWindow:self]; }
 @end
 @implementation CBWorkspace
 + (instancetype)shared { static CBWorkspace *value;static dispatch_once_t once;dispatch_once(&once,^{value=[CBWorkspace new];});return value; }
@@ -175,7 +186,12 @@ const NSSize CBWorkspaceDefaultSize={400,360};
     [self registerWindow:window];CBWindowEntry *e=[self entry:window];e.canFold=guard;e.activity=activity;e.stop=stop;
 }
 - (BOOL)isFolded:(NSWindow *)window { return [self entry:window].folded; }
-- (BOOL)isAvailable:(NSWindow *)window { return window.visible||[self isFolded:window]; }
+- (BOOL)isAvailable:(NSWindow *)window {
+    NSView *page=CBPageContent(window);
+    if (self.studioWindow && page.window==self.studioWindow)
+        return self.studioWindow.visible && !self.studioWindow.miniaturized && !page.hiddenOrHasHiddenAncestor;
+    return window.visible||[self isFolded:window];
+}
 - (BOOL)room:(NSRect)frame excluding:(CBWindowEntry *)entry {
     for(CBWindowEntry *other in self.entries){
         if(other==entry)continue;
@@ -215,7 +231,14 @@ const NSSize CBWorkspaceDefaultSize={400,360};
     return NO;
 }
 - (void)showWindow:(NSWindow *)window from:(NSWindow *)source {
-    if(!window||self.terminating)return;[self registerWindow:window];CBWindowEntry *e=[self entry:window];
+    if(!window||self.terminating)return;
+    if(self.presentStudioPage && [window isKindOfClass:CBManagedWindow.class]){
+        self.presentStudioPage(window);
+        if (self.studioWindow.miniaturized) [self.studioWindow deminiaturize:nil];
+        [(CBManagedWindow *)self.studioWindow workspaceOrderFront];
+        return;
+    }
+    [self registerWindow:window];CBWindowEntry *e=[self entry:window];
     // 先收起选择列表再找空位，避免把临时展开的条目当成需绕开的固定面板。
     [self dismissCapsuleGroups];
     if(source!=window&&source.visible)[self foldWindow:source];
@@ -387,7 +410,7 @@ const NSSize CBWorkspaceDefaultSize={400,360};
 - (void)closeWindow:(NSWindow *)window { CBWindowEntry *e=[self entry:window];e.folded=NO;e.detached=NO;[e.capsule orderOut:nil];[self arrangeCapsules]; }
 - (void)moved:(NSNotification *)note { CBWindowEntry *e=[self entry:note.object];if(e&&!e.placing&&e.window.visible)e.manual=YES; }
 - (void)resized:(NSNotification *)note {
-    NSWindow *window=note.object;CBWindowEntry *e=[self entry:window];if(!e||e.folded)return;e.manual=YES;
+    NSWindow *window=note.object;if(window==self.studioWindow)return;CBWindowEntry *e=[self entry:window];if(!e||e.folded)return;e.manual=YES;
     CBManagedWindow *managed=[window isKindOfClass:CBManagedWindow.class]?(CBManagedWindow *)window:nil;
     NSSize threshold=managed.workspaceFoldSize.width>0?managed.workspaceFoldSize:NSMakeSize(252,168);
     if(window.frame.size.width<threshold.width||window.frame.size.height<threshold.height){

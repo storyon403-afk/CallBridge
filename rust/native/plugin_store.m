@@ -1,3 +1,4 @@
+#import "window_workspace.h"
 /* 本文件的目的：将严格的 Rust 插件校验器接到原生文件选择器；说明按导入类型显示。
  * 文件处理与网络等待都在后台；只接受已经发布的资源适配器，不运行包内任意代码。 */
 #import "plugin_store.h"
@@ -87,8 +88,8 @@ static NSString *requirements(NSString *kind){
     self.guide=[[NSTextView alloc] initWithFrame:NSMakeRect(0,0,330,210)];self.guide.editable=NO;self.guide.font=[NSFont systemFontOfSize:12];self.guide.drawsBackground=NO;
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,330,150)];scroll.documentView=self.guide;scroll.hasVerticalScroller=YES;scroll.drawsBackground=NO;scroll.translatesAutoresizingMaskIntoConstraints=NO;[scroll.widthAnchor constraintEqualToConstant:330].active=YES;[scroll.heightAnchor constraintEqualToConstant:150].active=YES;
     NSStackView *content=CBColumn(@[self.choice,scroll]);content.frame=NSMakeRect(0,0,330,190);alert.accessoryView=content;[self changed:nil];
-    [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response){if(response!=NSAlertFirstButtonReturn){self.completion(nil,nil);return;}NSString *kind=self.kinds[self.choice.indexOfSelectedItem];NSOpenPanel *panel=[NSOpenPanel openPanel];panel.canChooseDirectories=YES;panel.canChooseFiles=YES;panel.allowsMultipleSelection=NO;panel.treatsFilePackagesAsDirectories=YES;
-        [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse choice){if(choice!=NSModalResponseOK){self.completion(nil,nil);return;}NSURL *url=panel.URL;BOOL scope=[url startAccessingSecurityScopedResource];
+    [alert beginSheetModalForWindow:CBDialogWindow(self.window) completionHandler:^(NSModalResponse response){if(response!=NSAlertFirstButtonReturn){self.completion(nil,nil);return;}NSString *kind=self.kinds[self.choice.indexOfSelectedItem];NSOpenPanel *panel=[NSOpenPanel openPanel];panel.canChooseDirectories=YES;panel.canChooseFiles=YES;panel.allowsMultipleSelection=NO;panel.treatsFilePackagesAsDirectories=YES;
+        [panel beginSheetModalForWindow:CBDialogWindow(self.window) completionHandler:^(NSModalResponse choice){if(choice!=NSModalResponseOK){self.completion(nil,nil);return;}NSURL *url=panel.URL;BOOL scope=[url startAccessingSecurityScopedResource];
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED,0),^{NSString *error=nil;NSData *data=[[CBResourceTask new] run:CBPocketWorkerURL() arguments:@[@"plugin-import",url.path,CBLocalPluginDirectory().path,kind] directory:nil input:nil timeout:180 error:&error];if(scope)[url stopAccessingSecurityScopedResource];NSDictionary *plugin=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
                 dispatch_async(dispatch_get_main_queue(),^{CBRefreshLocalPlugins(^(NSString *refreshError){self.completion(plugin,error?:refreshError);});});});}];}];
 }

@@ -27,6 +27,7 @@ void CBSetPanelTranslucent(BOOL enabled);
 BOOL CBPanelTranslucent(void);
 // 文字窗将材质延伸到标题栏，统一裁剪外轮廓；仍保留系统标题栏和缩放边缘。
 void CBRoundTextWindow(NSWindow *window);
+NSPanel *CBFloatingTextWindow(NSString *title, NSSize size, NSScreen *screen);
 
 @interface CBComposerEditor : NSTextView
 @end

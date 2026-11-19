@@ -63,7 +63,7 @@ public partial class VisualWindow : Window
             _host = new AvatarHost();
             var origin = await _host.StartAsync(_background, _character, token);
             token.ThrowIfCancellationRequested();
-            var composition = new { person = _snapshot.Person, background = _snapshot.Background, character = _snapshot.Person == "avatar" && _character != null };
+            var composition = new { person = _snapshot.Person, background = _snapshot.Background, backgroundOnly = _snapshot.BackgroundOnly, character = _snapshot.Person == "avatar" && _character != null };
             // 每次新导航先清除旧脚本，避免已导入资源或配置自动叠加。
             if (_compositionScript != null) Browser.CoreWebView2.RemoveScriptToExecuteOnDocumentCreated(_compositionScript);
             _compositionScript = await Browser.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(
@@ -98,12 +98,13 @@ public partial class VisualWindow : Window
     {
         _snapshot = snapshot; _background = snapshot.BackgroundPath; _character = snapshot.CharacterPath;
         _selecting = true;
-        PersonChoice.ItemsSource = new[] { "不替换人物", _character == null ? "澄 · 通话装" : Path.GetFileNameWithoutExtension(_character) };
-        PersonChoice.SelectedIndex = snapshot.Person == "avatar" ? 1 : 0;
+        PersonChoice.ItemsSource = new[] { "真人", _character == null ? "澄 · 通话装" : Path.GetFileNameWithoutExtension(_character), "纯背景" };
+        PersonChoice.SelectedIndex = FramingIndex(snapshot);
         BackgroundChoice.ItemsSource = BackgroundKinds.Select(VisualCatalogWindow.BackgroundName).ToArray();
         BackgroundChoice.SelectedIndex = Array.IndexOf(BackgroundKinds, snapshot.Background); _selecting = false;
         await ReloadAsync();
     }
+    private static int FramingIndex(VisualSnapshot setup) => setup.BackgroundOnly ? 2 : setup.Person == "avatar" ? 1 : 0;
     private static readonly string[] BackgroundKinds = ["original", "plate", "sample", "parallax", "custom", "image"];
     private void Back(object sender, RoutedEventArgs e) => _app.Workspace.Back(this);
     private async void Reload(object sender, RoutedEventArgs e) => await ReloadAsync();
@@ -111,12 +112,19 @@ public partial class VisualWindow : Window
     {
         if (_selecting || BackgroundChoice.SelectedIndex < 0) return;
         var background = BackgroundKinds[BackgroundChoice.SelectedIndex];
+        if (PersonChoice.SelectedIndex == 2 && background is ("original" or "plate"))
+        {
+            _selecting = true; PersonChoice.SelectedIndex = FramingIndex(_snapshot);
+            BackgroundChoice.SelectedIndex = Array.IndexOf(BackgroundKinds, _snapshot.Background); _selecting = false;
+            Status.Text = "纯背景模式需要图片或动画背景"; return;
+        }
         if (background is "custom" or "image" && (_background == null || (background == "image") != new[] { ".png", ".jpg", ".jpeg" }.Contains(Path.GetExtension(_background).ToLowerInvariant())))
         {
-            _selecting = true; BackgroundChoice.SelectedIndex = Array.IndexOf(BackgroundKinds, _snapshot.Background); _selecting = false;
+            _selecting = true; PersonChoice.SelectedIndex = FramingIndex(_snapshot);
+            BackgroundChoice.SelectedIndex = Array.IndexOf(BackgroundKinds, _snapshot.Background); _selecting = false;
             _app.OpenVisualCatalog(this, "dynamic", true); return;
         }
-        _snapshot = _snapshot with { Person = PersonChoice.SelectedIndex == 1 ? "avatar" : "none", Background = background };
+        _snapshot = _snapshot with { Person = PersonChoice.SelectedIndex == 1 ? "avatar" : "none", Background = background, BackgroundOnly = PersonChoice.SelectedIndex == 2 };
         // 配置切换只重新准备本地画面，不恢复摄像头授权或视频发送。
         await ReloadAsync();
     }

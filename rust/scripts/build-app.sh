@@ -41,13 +41,23 @@ cp 'build/camera/CallBridge Camera.app/Contents/MacOS/callbridge-camera-sender' 
 xcrun clang -std=c11 -fobjc-arc -fblocks -Wall -Wextra -Werror \
     -isysroot "$sdk_root" -mmacosx-version-min=26.0 \
     -F build/sparkle -framework Sparkle -Wl,-rpath,@executable_path/../Frameworks native/app_updater.m \
-    native/app.m native/service_panel.m native/cloud_client.m native/audio_panel.m native/recording_hotkeys.m native/localization.m native/panel_ui.m native/window_workspace.m native/workspace_check.m native/personal_voice.m native/avatar_plugin.m native/avatar_plugin_check.m native/avatar_panel.m native/avatar_check.m native/settings.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/pocket_provider.m native/plugin_store.m native/official_plugins.m native/english_provider.m native/plan_task.m native/speech_job.m native/stream_converter.m native/sender.c native/microphone.m target/release/libcallbridge_abi_probe.a \
-    -framework ImageIO -framework Carbon -framework AppKit -framework QuartzCore -framework WebKit -framework UniformTypeIdentifiers -framework AVFoundation -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
+    native/app.m native/call_board.m native/studio_host.m native/studio_art.m native/service_panel.m native/cloud_client.m native/audio_panel.m native/recording_hotkeys.m native/localization.m native/panel_ui.m native/window_workspace.m native/workspace_check.m native/personal_voice.m native/avatar_plugin.m native/avatar_plugin_check.m native/avatar_panel.m native/avatar_check.m native/settings.m native/speech_mix_check.m native/background_audio.m native/voice_provider.m native/pocket_provider.m native/plugin_store.m native/official_plugins.m native/english_provider.m native/plan_task.m native/speech_job.m native/stream_converter.m native/sender.c native/microphone.m target/release/libcallbridge_abi_probe.a \
+    -framework CoreMedia -framework ImageIO -framework Carbon -framework AppKit -framework QuartzCore -framework WebKit -framework UniformTypeIdentifiers -framework AVFoundation -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
     -Wl,-dead_strip -o "$app/Contents/MacOS/CallBridge"
 # 标准 .app 目录必须含可执行文件和 Info.plist；签名应在这些文件就位之后进行。
 cp native/Info.plist "$app/Contents/Info.plist"
 # 仅打包轻量界面词表，不增添音频或画面插件。
 cp -R native/locales/*.lproj "$app/Contents/Resources/"
+# 组合台和定稿原型共用材质与布局，应用包只载入原生桥接页面。
+studio="$app/Contents/Resources/Studio"
+design=../prototypes/call-workspace
+mkdir -p "$studio/media"
+cp build/studio-portrait.js* "$studio/"
+cp avatar/backgrounds/aurora.mp4 "$studio/media/"
+cp native/studio/index.html native/studio/studio.js native/studio/board.js native/studio/board.css "$studio/"
+cp "$design/studio.css" "$design/controls.css" "$studio/"
+cp "$design/media/coast-evening.jpg" "$design/media/window-morning.jpg" avatar/preview.jpg native/studio/cheng.png "$studio/media/"
+cp ../icon/app-icon.png "$studio/media/"
 cp ../plugins/official/catalog.json "$app/Contents/Resources/official-catalog.json"
 sh scripts/build-icon.sh
 # --sign - 是本地 ad-hoc 签名，不是 Developer ID 签名，也不是 Apple 公证。

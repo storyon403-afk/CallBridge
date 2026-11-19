@@ -26,7 +26,7 @@ for name in files:
 # 引用源码必须随包提供；绝不以“在开发缓存能编译”当作源码齐全。
 for name in ['rust/scripts/build-app.sh','rust/scripts/build-camera.sh']:
     script=(ROOT/name).read_text()
-    for reference in re.findall(r'\bnative/[A-Za-z0-9_./-]+\.(?:m|c)',script):
+    for reference in re.findall(r'\bnative/[A-Za-z0-9_./-]+\.(?:m|c)(?![A-Za-z0-9_.-])',script):
         if 'rust/'+reference not in files:issues.append({'path':reference,'rule':'missing-native-source'})
 for name in files:
     if name.endswith('.rs'):

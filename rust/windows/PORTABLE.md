@@ -2,7 +2,7 @@
 
 1. 把 ZIP **完整解压**到普通文件夹；不要直接在压缩包里运行，不要只复制 EXE。
 2. 双击 `Test-Windows.cmd`，检查核心和运行组件。结果保存在同目录的 `windows-check.log`，不会打开媒体设备。
-3. 双击 `CallBridge.exe` 启动。先在“音频模拟”选择系统音色、试听与发送设备，再打开文字面板。
+3. 双击 `CallBridge.exe` 启动。在「组合台」选择音色和构图，在「接线台」设置试听与发送设备，点击「打字说话」打开文字面板。
 
 包内自带 .NET、Node、Python 和视频适配依赖，无需安装编译工具。画面窗口需要 [Microsoft WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)；缺少时按微软页面安装。
 
@@ -17,4 +17,4 @@
 
 声音转录与云端服务已加入页面入口和能力说明；变声/识别引擎、云端任务、Pocket/个人音色、插件安装、常驻环境混音和自动更新仍待适配。参见 `UI-ACCEPTANCE.md` 的逐页对照清单。
 
-0.0.4 正式版推荐下载 `CallBridge-0.0.4-windows-x64-icons1.zip`，使用同页 `WINDOWS-icons1-SHA256SUMS` 核对。此包没有发布者签名。升级时先退出旧版，完整解压新版后运行。出现错误时保留 `windows-check.log` 和报错内容。
+0.0.5 便携包名为 `CallBridge-0.0.5-windows-x64.zip`，使用 `WINDOWS-SHA256SUMS` 核对。此包没有发布者签名。升级时先退出旧版，完整解压新版后运行。出现错误时保留 `windows-check.log` 和报错内容。

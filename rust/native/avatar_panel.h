@@ -17,6 +17,10 @@
 - (instancetype)initWithMemoryCheck:(BOOL)memory;
 @property(nonatomic, readonly) CBAvatarController *activeController;
 - (void)present;
+- (void)presentComposition;
+- (void)allowStudioSwitchFrom:(NSWindow *)window completion:(void (^)(BOOL))completion;
+- (void)replaceStudioComposition:(NSDictionary *)composition;
+- (void)stopCompositionPreview;
 - (void)shutdown;
 @end
 // 独立诊断入口：真实 WKWebView 与合成/公开素材，只使用原生内存帧发送器。

@@ -1,0 +1,63 @@
+/* 两个本地入口共用颜色、控件尺寸与反馈，画册构建时复制此样式。 */
+:root {
+  --cb-bg: #171b19;
+  --cb-surface: #222724;
+  --cb-field: #191e1b;
+  --cb-text: #f1efe8;
+  --cb-muted: #b7bcb3;
+  --cb-rule: #3d463f;
+  --cb-accent: #d6e9c4;
+  --cb-ink: #243322;
+  --cb-radius: 9px;
+  --cb-glass: rgba(27, 34, 33, .62);
+  --cb-inset: rgba(16, 23, 23, .46);
+  --cb-rim: rgba(244, 250, 244, .24);
+  --cb-frost: blur(18px) saturate(1.12);
+}
+.control-primary, .control-secondary {
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  border:1px solid var(--cb-rule);border-radius:24px;
+  min-height:34px;padding:6px 14px;font:inherit;font-size:13px;font-weight:570;
+  line-height:1.35;text-decoration:none;white-space:nowrap;
+}
+.control-primary {background:var(--cb-accent);border-color:var(--cb-accent);color:var(--cb-ink)}
+.control-secondary {background:transparent;color:var(--cb-text)}
+.filter-strip {display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:0}
+.filter-strip button {
+  display:inline-flex;align-items:center;justify-content:center;flex:none;
+  min-height:32px;margin:0;padding:5px 11px;border:1px solid transparent;border-radius:20px;
+  font-size:13px;color:var(--cb-muted);line-height:1.4;
+}
+.filter-strip button:is([aria-current=true],[aria-pressed=true]) {background:#374337;border-color:#52614e;color:#e4f4d8}
+:focus-visible {outline:2px solid var(--cb-accent);outline-offset:3px}
+@media(hover:hover) {
+  .control-primary:hover:not(:disabled) {background:#e6f3d9}
+  .control-secondary:hover,.filter-strip button:hover {background:#303a32;color:var(--cb-text)}
+}
+@media(prefers-reduced-motion:no-preference) {
+  .control-primary,.control-secondary,.filter-strip button {transition:background .15s,border-color .15s}
+}
+@media(max-width:560px){.filter-strip{gap:2px}.filter-strip button{font-size:12px;padding:5px 8px}}
+
+/* 底图仅供本地预览。透明度作用于材料层，字形、照片和视频独立绘制。 */
+body.material-desktop {background:transparent;isolation:isolate}
+.material-desktop::before {
+  content:"";position:fixed;inset:-12px;z-index:-1;pointer-events:none;
+  background:linear-gradient(120deg,rgba(11,17,20,.57),rgba(13,21,24,.46) 55%,rgba(10,16,19,.66)),
+    var(--cb-wallpaper) center / cover no-repeat;
+  filter:blur(5px);
+}
+.material-glass {
+  -webkit-backdrop-filter:var(--cb-frost);
+  backdrop-filter:var(--cb-frost);
+}
+.filter-strip button:is([aria-current=true],[aria-pressed=true]) {
+  background:rgba(171,203,154,.18);border-color:rgba(209,234,193,.42);color:#f0fae8;
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
+  :root {--cb-glass:rgba(27,34,33,.90)}
+}
+@media(prefers-reduced-transparency:reduce) {
+  :root {--cb-glass:#252c29;--cb-inset:#1c2421;--cb-frost:none}
+  .material-desktop::before {background:var(--cb-bg);filter:none}
+}
