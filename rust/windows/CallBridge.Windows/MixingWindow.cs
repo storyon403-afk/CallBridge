@@ -10,6 +10,7 @@ namespace CallBridge.Windows;
 internal sealed class MixingWindow : ModuleWindow
 {
     private string? _file;
+    internal string? FileName => Path.GetFileName(_file);
     internal MixingWindow(App app) : base(app, "mixing", "混音设置")
     { ReturnHome = () => Navigate("home"); app.Audio.Status += Message; Closed += (_, _) => app.Audio.Status -= Message; Navigate("home"); }
     private void Navigate(string page)

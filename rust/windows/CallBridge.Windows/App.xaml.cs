@@ -73,7 +73,7 @@ public partial class App : Application
     {
         _ = Workspace.Get("services") ?? new ServicesWindow(this); Workspace.Show("services", from);
     }
-    internal void Help() => MessageBox.Show("先在音频模拟选择音色与设备，再打开文字输入。画面处理先选人物和背景，点击打开后再明确开启摄像头或输出。顶部标签双击展开；窗口菜单可设置置顶。", "CallBridge");
+    internal void Help() => MessageBox.Show("在组合台选择音色、人物和背景，在接线台分别选择本机试听和通话输出设备。点击打字说话编辑草稿，或点击打开画面预览。摄像头和视频输出需要分别开启。顶部标签双击展开；窗口菜单可设置置顶。", "CallBridge");
     internal async Task RequestQuitAsync()
     {
         try { await QuitAsync(); } catch (Exception e) { MessageBox.Show("退出清理失败：" + e.Message, "CallBridge"); }

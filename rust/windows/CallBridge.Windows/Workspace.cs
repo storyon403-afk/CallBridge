@@ -92,7 +92,9 @@ internal sealed class Workspace
                 if (!window.IsVisible)
                 {
                     var size = id == "text" ? _sizes.GetValueOrDefault(id, new Size(window.Width >= 252 ? window.Width : 560, window.Height >= 112 ? window.Height : 112)) : new Size(400, 360);
-                    window.Width = size.Width; window.Height = size.Height; window.Show();
+                    // 组合台按实际桌面尺寸启动；恢复时保留用户调整后的宽高。
+                    if (id != "main") { window.Width = size.Width; window.Height = size.Height; }
+                    window.Show();
                 }
                 if (window.WindowState == WindowState.Minimized) window.WindowState = WindowState.Normal;
             }
