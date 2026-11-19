@@ -1,8 +1,10 @@
 # Packaging and Uploading
 
-Current stable release: **0.0.4 / build 50**, tag **v0.0.4**, Apple Silicon/macOS 26+ and Windows 11 x64. Apple distribution signing/notarization and Windows publisher signing are deferred; retain those disclosures in downloads.
+Current stable release: **0.0.5 / build 51**, tag **v0.0.5**, Apple Silicon/macOS 26+ and Windows 11 x64. Apple distribution signing/notarization and Windows publisher signing are deferred; retain those disclosures in downloads.
 
-0.0.4 was promoted after Windows-to-Mac WebRTC audio/video and a signed Sparkle upgrade from 0.0.3 passed. The original 12 attachments are immutable. The recommended Windows download is the supplemental `CallBridge-0.0.4-windows-x64-icons1.zip` with `WINDOWS-icons1-SHA256SUMS`; only the application EXE and DLL changed within its payload. The procedures below describe how the original candidate was created. Do not re-run them to replace existing assets or revert the release to pre-release.
+0.0.5 ships the call studio on both platforms. Its 12 assets include the two platform ZIPs, source archive, signed Sparkle feed, checksums, manifests and user documentation.
+
+Historically, 0.0.4 was promoted after Windows-to-Mac WebRTC audio/video and a signed Sparkle upgrade from 0.0.3 passed. The original 12 attachments are immutable. The recommended download for that version was the supplemental `CallBridge-0.0.4-windows-x64-icons1.zip` with `WINDOWS-icons1-SHA256SUMS`; only the application EXE and DLL changed within its payload. The historical publication steps below describe how the 0.0.4 candidate was created. Do not re-run them to replace existing assets or revert the release to pre-release.
 
 ## Generate packages
 
@@ -16,7 +18,7 @@ python3 scripts/package-release.py
 python3 scripts/check-release.py
 ```
 
-`rust/build/releases/0.0.4/` contains macOS and Windows ZIPs, source archive, manifests, signed `appcast.xml`, `SHA256SUMS`. Stage only the 12 final attachments listed below into `github-release/`; never include old `ui1`/`ui2` test packages. App ZIP includes Node, excluding personal recordings/voices/settings/speech models. Users install virtual audio/OBS separately. Source only: `python3 scripts/package-release.py --source-only`.
+`rust/build/releases/0.0.5/` contains macOS and Windows ZIPs, source archive, manifests, signed `appcast.xml`, `SHA256SUMS`. Stage only the 12 final attachments listed below into `github-release/`; never include old `ui1`/`ui2` test packages. App ZIP includes Node, excluding personal recordings/voices/settings/speech models. Users install virtual audio/OBS separately. Source only: `python3 scripts/package-release.py --source-only`.
 
 ## Windows release payload
 

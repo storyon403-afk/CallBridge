@@ -5,11 +5,11 @@
 
 CallBridge brings typed speech, voices, background audio and virtual characters into your calls through virtual audio and video devices.
 
-**0.0.4 Stable · macOS 26+ (Apple Silicon) · Windows 11 x64**
+**0.0.5 Stable · macOS 26+ (Apple Silicon) · Windows 11 x64**
 
 Windows has a portable package for system speech, file mixing and virtual-character video. Pocket/personal voices, plugin installation, persistent ambience, cloud operations and automatic updates remain macOS-only. See [Windows installation and scope](rust/windows/README.md).
 
-[Download 0.0.4](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.4). Choose the Windows ZIP ending in `-icons1.zip` for the Explorer, window and tray icons. Windows speech and OBS video were received by a separate Mac WebRTC peer. The signed macOS update was tested from 0.0.3.
+Both desktop apps open in Studio. Choose an avatar and backdrop, select your audio devices in Routing, then open Type to Speak. [Download CallBridge 0.0.5](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.5).
 
 ## Features
 
@@ -26,7 +26,7 @@ The cloud catalog includes **Decart Lucy, LiveAvatar, Tavus CVI, FASHN, ZEGO, Xm
 ## Get started
 
 1. Download your platform package from [Releases](https://github.com/storyon403-afk/CallBridge/releases). On Mac, move the App to Applications; on Windows, fully extract the ZIP and open `CallBridge.exe`.
-2. Choose a system voice, open **Text input**, and preview your message.
+2. Choose a system voice, open **Type to Speak**, and preview your message.
 3. Configure a [virtual microphone](GETTING_STARTED.md#audio) for call audio or [OBS Virtual Camera](GETTING_STARTED.md#video) for video.
 
 Mac: **⌘↩** Send · **⌘.** Stop. Windows: **Ctrl+Enter** Send · **Ctrl+.** Stop. **Enter** adds a new line.

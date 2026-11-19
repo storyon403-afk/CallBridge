@@ -5,17 +5,17 @@
 
 CallBridge 可以把你打的字变成语音，送进通话。你还可以换声音、加背景音，或者用虚拟人物和不同背景参加视频通话。
 
-**正式版本 0.0.4：macOS 26+（Apple Silicon）与 Windows 11 x64。**
+**正式版本 0.0.5 · macOS 26+（Apple Silicon）与 Windows 11 x64。**
 
 Windows 提供[便携包、使用与构建说明](rust/windows/README.md)，包含系统语音、文件混音和虚拟人物画面输出。Pocket/个人音色、插件安装、常驻环境混音、云端操作和自动更新目前仅在 macOS 版提供。
 
-[下载 0.0.4 正式版](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.4)。Windows 请选择以 `-icons1.zip` 结尾的便携包，包含资源管理器、窗口和托盘图标。已在独立 Mac WebRTC 对端收到 Windows 的语音及 OBS 画面，并实测 macOS 从 0.0.3 在线升级。
+两个平台现在都从「我的通话组合」开始。在「组合台」搭配人物与背景，在「接线台」选择试听和通话设备。[下载 CallBridge 0.0.5 正式版](https://github.com/storyon403-afk/CallBridge/releases/tag/v0.0.5)。
 
 ## 怎么开始
 
 1. 到 [Releases](https://github.com/storyon403-afk/CallBridge/releases) 下载对应平台的 ZIP。Mac 解压后把 **CallBridge.app** 拖进“应用程序”；Windows 完整解压后打开 **CallBridge.exe**。也可以[自己从源码构建](GETTING_STARTED.md#中文使用流程)。
 2. 打开 CallBridge，先选一个系统音色，不用先下载语音模型。
-3. 打开“文字输入”，输入想说的话，点击右侧小箭头，再点“试听这段”，用扬声器或耳机听听效果。
+3. 点击「打字说话」，输入想说的话，点击右侧小箭头，再点“试听这段”，用扬声器或耳机听听效果。
 4. 要让通话对方听到，请按[使用说明](GETTING_STARTED.md#中文使用流程)配置虚拟麦克风；要输出画面，则使用 OBS Virtual Camera。
 
 App 尚未经过苹果发布签名和公证，第一次打开时系统可能提示拦截。[打开方法](GETTING_STARTED.md#中文使用流程)见使用说明。
