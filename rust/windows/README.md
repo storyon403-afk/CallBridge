@@ -4,7 +4,7 @@ Windows 桌面迁移使用 WPF + WebView2，保留 Rust 音频/会话核心和�
 
 ## 便携发行包
 
-直接运行请看 [Windows 便携包说明](PORTABLE.md)。`CallBridge-0.0.4-windows-x64.zip` 已包含 Windows 程序、Rust DLL、.NET、Node 与视频适配运行时，完整解压后运行 `Test-Windows.cmd`，再打开 `CallBridge.exe`。本版从当前源码重新构建；0.0.3 ui2 的历史测试确认不适用于本版，需重新完成 Windows 真机与设备验收。
+直接运行请看 [Windows 便携包说明](PORTABLE.md)。`CallBridge-0.0.4-windows-x64-icons1.zip` 已包含 Windows 程序、Rust DLL、.NET、Node 与视频适配运行时，完整解压后运行 `Test-Windows.cmd`，再打开 `CallBridge.exe`。0.0.4 已在 Windows 11 x64 上验证系统语音、虚拟线发送与停止、OBS 视频输出和独立 Mac WebRTC 对端接收。
 
 维护者可用 `sh rust/scripts/build-windows-cross.sh` 复用 `rust/build/toolchains/` 中的 .NET 10.0.403、Rust 1.97.1（含 Windows gnullvm 目标）和 LLVM-MinGW 20261020，在 Apple Silicon Mac 上重新组装。运行时归档由 `release/windows-runtime.json` 固定；传入 `--restore` 才会下载缺失归档。
 

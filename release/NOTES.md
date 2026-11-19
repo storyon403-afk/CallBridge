@@ -1,44 +1,15 @@
-# CallBridge 0.0.4 测试版
+# CallBridge 0.0.4 · 正式版 / Stable release
 
-Build 50 · macOS 26+（Apple Silicon）· Windows 11 x64
+**Windows 11 x64：** 下载[带图标的 Windows 便携包](https://github.com/storyon403-afk/CallBridge/releases/download/v0.0.4/CallBridge-0.0.4-windows-x64-icons1.zip)，完整解压后打开 `CallBridge.exe`。也可先运行 `Test-Windows.cmd`。用 `WINDOWS-icons1-SHA256SUMS` 核对这份 ZIP。它补齐了资源管理器、窗口、任务栏和托盘的品牌图标。原始 Windows ZIP 继续保留；两包除应用 EXE、DLL 和包清单外，文件内容一致。图标修订的[确切源码](https://github.com/storyon403-afk/CallBridge/commit/a53506a53a3003e9b7f589a031b45fc328798a91)。
 
-这是供手动安装和回归的 Pre-release。0.0.3 仍是稳定版，现有稳定版用户不会自动收到本测试版。
+**macOS 26+ · Apple Silicon：** [下载 Mac 版](https://github.com/storyon403-afk/CallBridge/releases/download/v0.0.4/CallBridge-0.0.4-macos-arm64.zip)，或在支持自动更新的发行版中选择「检查更新」。0.0.2 及更早版本请手动升级。Mac 包仍是 build 50，沿用已签名的更新源与 ZIP。
 
-## 本版更新
+本版改善 Windows 文字面板、输出设备提示、模块导航和 OBS 画面转换。macOS 增加实验性的 CBFA v1 二维帧角色支持；实验人物素材不随包提供。
 
-- Windows 文字面板改善中文两行显示、展开后的编辑区域与光标位置保留。
-- Windows 文字面板直接显示发送目标，提示设备不可用及试听/发送设备重复，提供设备设置入口。
-- Windows 模块补充返回入口、无障碍按钮名称和未支持功能说明；人物详情与 VRM 导入入口更清楚。
-- Windows OBS 适配将最终 RGBA 画面转换为连续 RGB 数据，避免向不支持 RGBA 的后端提交错误格式。
-- macOS 新增实验性 CBFA v1 二维帧角色导入、图集校验与渲染，支持有限转头、眨眼、说话、微笑和皱眉状态。二维图集不能替代完整 3D 身体、手指或任意角度跟踪。
-- 更新中英文安装、测试与平台范围说明。实验人物素材和未发布角色插件不随包提供；保留内置「澄 · 通话装」。
+**实测范围（2026-11-19）：** Windows 11 x64 → 独立 Mac WebRTC 对端，通过 VB-Audio 传送系统语音，通过 OBS Virtual Camera 传送测试画面；Mac 解码出非零语音和三种不同的测试色。macOS 上使用 Sparkle 将单独解压的 0.0.3 在线升级至 0.0.4，核对安装后的文件和签名并通过界面自检。测试网络曾出现 GitHub TLS 连接失败，重试后成功。未验证所有第三方通话软件、网络或设备组合。
 
-## 下载与安装
+Windows 仍需手动更新；驱动、OBS 和部分可选运行时需独立安装。Windows 包无发布者签名，Mac 包未做 Apple Developer ID 签名或公证。
 
-| 平台 | 下载文件 | 安装 |
-| --- | --- | --- |
-| macOS 26+ · Apple Silicon | `CallBridge-0.0.4-macos-arm64.zip` | 退出旧版，解压后把 App 拖进“应用程序” |
-| Windows 11 x64 | `CallBridge-0.0.4-windows-x64.zip` | 完整解压，先运行 `Test-Windows.cmd`，再打开 `CallBridge.exe` |
-| 源码 | `CallBridge-0.0.4-source.tar.gz` | 两个平台源码、构建入口与许可说明 |
+**English:** Version 0.0.4 is the stable release. Windows users should choose the `windows-x64-icons1.zip` portable package and its separate checksum file. The macOS ZIP and signed Sparkle feed are unchanged. An independent Mac WebRTC peer received speech from VB-Audio and changing video from OBS Virtual Camera. Sparkle upgraded an extracted 0.0.3 app online to build 50; the installed files matched the published app. This does not establish compatibility with every call client. Windows publisher signing and Apple distribution signing/notarization are not provided.
 
-使用 `SHA256SUMS` 核对下载文件。Windows 包自带 .NET、Node、Python 和视频适配依赖；画面窗口需要另装 Microsoft WebView2 Runtime。虚拟音频驱动、OBS、语音模型及私人资源不随包提供。
-
-## 测试范围与已知限制
-
-本版从当前源码重新构建，不复用 0.0.3 ui2 的 Windows 程序。旧版的真机确认不代表本版通过验收。Windows 真机界面、虚拟设备、实际通话与 macOS 在线升级仍需回归；自动化检查和交叉编译不能替代这些检查。包内 `UI-ACCEPTANCE.md` 提供 Windows 回归清单。
-
-Windows 尚未提供 Pocket/个人音色、插件安装、常驻环境混音、多语言、全局快捷键、云端任务和自动更新。macOS 实时变声和识别引擎尚未提供，云端媒体传输/合成与真实账号验收尚未完成。
-
-macOS 包保留已签名更新校验，后续稳定版发布后可检查更新。本测试版不会替换 GitHub 的 latest 稳定更新源。0.0.2 及更早版本需要手动安装；Windows 升级始终手动下载完整包。
-
-macOS 尚未使用 Apple Developer ID 签名或公证，Windows 未做发布者签名。更新签名不等于 Apple 公证，首次启动可能出现系统提示。参见[安装说明](https://github.com/storyon403-afk/CallBridge/blob/v0.0.4/GETTING_STARTED.md)与 [Windows 范围](https://github.com/storyon403-afk/CallBridge/blob/v0.0.4/rust/windows/README.md)。
-
-## English
-
-CallBridge 0.0.4 (build 50) is a manual-install pre-release for macOS 26+ Apple Silicon and Windows 11 x64. Version 0.0.3 remains the stable automatic-update release.
-
-This build improves Windows text layout, route warnings, navigation and accessibility, fixes OBS RGBA-to-RGB conversion, and adds experimental CBFA v1 frame-avatar validation and rendering on macOS. Experimental artwork and unpublished character packages are excluded; Cheng · Call Outfit remains available.
-
-The Windows package is rebuilt from current source. Previous ui2 acceptance does not cover this build. Windows UI/device/real-call acceptance and a live macOS upgrade remain pending. See the packaged Windows checklist. Windows features and platform limitations remain as documented in the linked guides.
-
-Fully extract the Windows ZIP and run `Test-Windows.cmd` before launching `CallBridge.exe`. Compare downloads with `SHA256SUMS`. WebView2, OBS and virtual audio drivers remain separate prerequisites. Apple Developer ID signing/notarization and Windows publisher signing are not provided.
+The original archives, checksums, tag and attached notes are retained as build-time records. This release page describes the final publication and the supplemental Windows package.

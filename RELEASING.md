@@ -1,6 +1,8 @@
 # Packaging and Uploading
 
-Current test release: **0.0.4 / build 50**, tag **v0.0.4**, Apple Silicon/macOS 26+ and Windows 11 x64. Apple distribution signing/notarization and Windows publisher signing are deferred; retain those disclosures in downloads.
+Current stable release: **0.0.4 / build 50**, tag **v0.0.4**, Apple Silicon/macOS 26+ and Windows 11 x64. Apple distribution signing/notarization and Windows publisher signing are deferred; retain those disclosures in downloads.
+
+0.0.4 was promoted after Windows-to-Mac WebRTC audio/video and a signed Sparkle upgrade from 0.0.3 passed. The original 12 attachments are immutable. The recommended Windows download is the supplemental `CallBridge-0.0.4-windows-x64-icons1.zip` with `WINDOWS-icons1-SHA256SUMS`; only the application EXE and DLL changed within its payload. The procedures below describe how the original candidate was created. Do not re-run them to replace existing assets or revert the release to pre-release.
 
 ## Generate packages
 
@@ -28,7 +30,7 @@ For runtime acceptance, compare the ZIP digest with the published `SHA256SUMS` a
 
 Include source, build scripts, usage, licenses, `plugins/official/`, website assets, `SECURITY.md`, `THIRD_PARTY_NOTICES.md`. Keep `website/media/`, `assets/demos/`, `assets/diagrams/04.png` required by the site. Exclude `build/`, `target/`, `node_modules/`, `__pycache__/`, `plugins/experimental/`, personal recordings/voices/settings. Experimental artwork has no confirmed redistribution clearance and remains local; do not commit or attach it. Generated `UPLOAD_FILES.txt` lists source contents.
 
-## Publish the App
+## Historical: original pre-release publication
 
 1. Commit/push prepared source.
 2. Create a **draft pre-release** GitHub Release for **v0.0.4**, title **CallBridge 0.0.4 — Test release**, targeting the pushed commit.
